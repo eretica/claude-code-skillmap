@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 const ROOM = "e2eroom0123456789abcdef"; // mock-api.ts の E2E_ROOM と一致させる
@@ -22,6 +23,20 @@ test("ルートは個人解析のみでアップロードできない", async ({
   await expect(page.getByRole("button", { name: "チームに共有…" })).toHaveCount(
     0,
   );
+
+  // 過去履歴(stats-cache.json)は単体ファイルのD&Dでも取り込める
+  const statsJson = readFileSync("e2e/fixtures/stats-cache.json", "utf8");
+  const dataTransfer = await page.evaluateHandle((json) => {
+    const dt = new DataTransfer();
+    dt.items.add(
+      new File([json], "stats-cache.json", { type: "application/json" }),
+    );
+    return dt;
+  }, statsJson);
+  await page.dispatchEvent(".dropzone", "drop", { dataTransfer });
+  await expect(
+    page.getByText(/2 日分のアクティビティをバックフィル/),
+  ).toBeVisible();
   // エクスポートはモーダル経由。開くと共有ボタンはなくエクスポートのみ
   await page
     .getByRole("button", { name: "サマリーJSONをエクスポート…" })

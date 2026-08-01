@@ -148,7 +148,19 @@ export function PersonalView() {
   const run = async (targets: File[]) => {
     const statsFile = targets.find(isStatsCacheFile);
     const jsonl = targets.filter((f) => !isStatsCacheFile(f));
-    if (jsonl.length === 0) return;
+    // stats-cache.json 単体のドロップ: 解析済みならバックフィル、未解析なら案内
+    if (jsonl.length === 0) {
+      if (!statsFile) return;
+      if (summary) {
+        await onStatsFile(statsFile);
+      } else {
+        setNotice({
+          kind: "error",
+          text: "stats-cache.json を受け取りましたが、先にトランスクリプト(~/.claude/projects)を読み込んでください。~/.claude フォルダごとドラッグすれば両方を一度に取り込めます。",
+        });
+      }
+      return;
+    }
     setParsing(true);
     setSummary(null);
     setShareState("idle");
@@ -348,6 +360,10 @@ export function PersonalView() {
         </div>
         <div className="hint">
           .jsonl ファイルをブラウザ内でパースします。データが外部に送信されることはありません。
+          <br />
+          隠しフォルダ(.claude)が選択ダイアログに表示されない場合は、Macでは{" "}
+          <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd>{" "}
+          で表示できます。Finderから直接ドラッグ&ドロップでもOKです。
         </div>
       </Dropzone>
 
@@ -438,7 +454,8 @@ export function PersonalView() {
             />
             <span className="empty-note">
               ~/.claude/stats-cache.json
-              を選ぶと、トランスクリプト削除済み期間の日別アクティビティを取り込めます
+              で、トランスクリプト削除済み期間の日別アクティビティを取り込めます。上のドロップゾーンへの
+              ドラッグ&ドロップでもOK(隠しフォルダは Cmd+Shift+. で表示)
             </span>
           </div>
 
