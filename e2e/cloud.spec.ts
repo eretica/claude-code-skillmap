@@ -82,7 +82,7 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
   await page.getByRole("button", { name: "チーム集計" }).click();
   await page.getByRole("button", { name: /再読み込み/ }).click();
   await expect(page.locator(".member-chip", { hasText: "e2e-user" })).toBeVisible();
-  await expect(page.locator(".heatmap")).toBeVisible();
+  await expect(page.locator(".heatmap").first()).toBeVisible();
   const excludedRow = page.locator(".heatmap tbody tr", {
     hasText: "demo-skill-b",
   });
@@ -99,13 +99,25 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
   });
   await expect(freshRow.locator("td").nth(2)).not.toHaveText("–");
 
-  // ヒートマップの絞り込みとメンバー列ソート
+  // ヒートマップの絞り込み(全カテゴリ共通)とメンバー列ソート
   await page.locator(".hm-filter").fill("demo-skill-b");
   await expect(page.locator(".heatmap tbody tr")).toHaveCount(1);
   await page.locator(".hm-filter").fill("");
-  await page.locator(".heatmap thead th.sortable", { hasText: "demo-b" }).click();
-  await expect(page.getByText(/demo-b の利用順に表示中/)).toBeVisible();
-  await page.locator(".heatmap thead th.sortable", { hasText: "demo-b" }).click();
+  const skillsCard = page.locator(".card", { hasText: "スキル × メンバー" });
+  const sortHeader = skillsCard.locator("thead th.sortable", {
+    hasText: "demo-b",
+  });
+  await sortHeader.click();
+  await expect(sortHeader).toContainText("▼");
+  await sortHeader.click();
+
+  // 全カテゴリが同時に表示される(タブ切替なし)。データのないカテゴリは出ない
+  await expect(
+    page.locator(".card", { hasText: "サブエージェント × メンバー" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".card", { hasText: "MCPツール × メンバー" }),
+  ).toHaveCount(0);
 
   // 4. 削除モードでのみセル削除できる(通常時はクリック無効)
   const row = page.locator(".heatmap tbody tr", { hasText: "demo-skill-a" });

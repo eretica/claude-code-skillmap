@@ -50,13 +50,10 @@ function readSummaries(files: File[]): Promise<UsageSummary[]> {
 
 export function TeamView() {
   const [members, setMembers] = useState<UsageSummary[]>([]);
+  // ヒートマップ群の共通コントロール(全カテゴリに効く)
+  const [editMode, setEditMode] = useState(false);
+  const [query, setQuery] = useState("");
   // 表示状態はURLハッシュから復元し、変更時に書き戻す(リンクで共有できるように)
-  const [category, setCategory] = useState<FeatureCategory>(() => {
-    const c = getHashParam("category");
-    return FEATURE_CATEGORIES.includes(c as FeatureCategory)
-      ? (c as FeatureCategory)
-      : "skills";
-  });
   const [period, setPeriod] = useState<Period>(() => {
     const p = getHashParam("period");
     return p === "30" ? 30 : p === "7" ? 7 : "all";
@@ -68,11 +65,11 @@ export function TeamView() {
 
   useEffect(() => {
     setHashParams({
-      category: category === "skills" ? null : category,
+      category: null, // 旧バージョンのURL互換のため掃除だけする
       period: period === "all" ? null : String(period),
       target: compareTarget || null,
     });
-  }, [category, period, compareTarget]);
+  }, [period, compareTarget]);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Map<string, string>>(new Map());
 
@@ -96,7 +93,7 @@ export function TeamView() {
 
   // アップロード後の個別項目削除(クラウド版): サーバーのdataから該当キーを消す
   const removeItem = useCallback(
-    async (memberName: string, feature: string) => {
+    async (category: FeatureCategory, memberName: string, feature: string) => {
       if (
         !window.confirm(
           `${memberName} の「${feature}」をサーバーから削除しますか?`,
@@ -126,7 +123,7 @@ export function TeamView() {
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [category],
+    [],
   );
 
   const removeMember = async (name: string) => {
@@ -165,25 +162,23 @@ export function TeamView() {
     ? members.filter((m) => !m.dailyFeatures).map((m) => m.name)
     : [];
 
-  // 期間・カテゴリを適用した集計はレンダーごとに再計算しない
-  const countsOf = useMemo(
-    () =>
-      new Map(
-        members.map(
-          (m) => [m.name, featureCounts(m, category, cutoff)] as const,
+  // 期間を適用した全カテゴリの集計はレンダーごとに再計算しない
+  const countsByCat = useMemo(() => {
+    const map = new Map<
+      FeatureCategory,
+      Map<string, Record<string, number>>
+    >();
+    for (const cat of FEATURE_CATEGORIES) {
+      map.set(
+        cat,
+        new Map(
+          members.map((m) => [m.name, featureCounts(m, cat, cutoff)] as const),
         ),
-      ),
-    [members, category, cutoff],
-  );
-  const skillCountsOf = useMemo(
-    () =>
-      new Map(
-        members.map(
-          (m) => [m.name, featureCounts(m, "skills", cutoff)] as const,
-        ),
-      ),
-    [members, cutoff],
-  );
+      );
+    }
+    return map;
+  }, [members, cutoff]);
+  const skillCountsOf = countsByCat.get("skills")!;
   const activityOf = useMemo(
     () =>
       new Map(members.map((m) => [m.name, activityIn(m, cutoff)] as const)),
@@ -312,14 +307,58 @@ export function TeamView() {
 
           {target && <RecommendCard members={members} target={target} />}
 
+          <div className="controls-row" style={{ marginTop: 8 }}>
+            <input
+              type="text"
+              className="hm-filter"
+              placeholder="機能名で絞り込み(全カテゴリ)"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {IS_CLOUD && (
+              <button
+                className={editMode ? "primary" : "ghost"}
+                onClick={() => setEditMode((v) => !v)}
+              >
+                {editMode ? "削除モードを終了" : "項目を削除する…"}
+              </button>
+            )}
+            <span className="empty-note">
+              空欄は未利用 = その人に布教するチャンス。
+              {editMode && " 削除モード中: 数値セルのクリックでサーバーから削除します。"}
+            </span>
+          </div>
+
           <TeamHeatmap
             members={members}
-            category={category}
-            onCategoryChange={setCategory}
-            countsOf={countsOf}
+            category="skills"
+            counts={countsByCat.get("skills")!}
             highlightName={target?.name}
-            onRemoveItem={(name, feature) => void removeItem(name, feature)}
+            editMode={editMode}
+            query={query}
+            limit={15}
+            onRemoveItem={(name, feature) =>
+              void removeItem("skills", name, feature)
+            }
           />
+          <div className="card-grid">
+            {(
+              ["subagents", "mcpTools", "slashCommands", "plugins"] as const
+            ).map((cat) => (
+              <TeamHeatmap
+                key={cat}
+                members={members}
+                category={cat}
+                counts={countsByCat.get(cat)!}
+                highlightName={target?.name}
+                editMode={editMode}
+                query={query}
+                onRemoveItem={(name, feature) =>
+                  void removeItem(cat, name, feature)
+                }
+              />
+            ))}
+          </div>
 
           <AskWhoCard members={members} />
 
