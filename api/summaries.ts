@@ -76,6 +76,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         "mcpTools",
         "slashCommands",
         "plugins",
+        "repos",
       ];
       if (
         typeof name !== "string" ||
@@ -110,6 +111,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (rec && key in rec) {
             delete rec[key];
             changed = true;
+          }
+        }
+      }
+      // リポジトリ別の日別データからも削除する
+      // (repos削除=そのリポジトリ丸ごと、機能削除=各リポジトリ内の該当項目)
+      if (data.dailyRepos && typeof data.dailyRepos === "object") {
+        for (const repoMap of Object.values(data.dailyRepos)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const rm = repoMap as any;
+          if (category === "repos") {
+            if (rm && key in rm) {
+              delete rm[key];
+              changed = true;
+            }
+          } else {
+            for (const bucket of Object.values(rm ?? {})) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const rec = (bucket as any)?.features?.[category];
+              if (rec && key in rec) {
+                delete rec[key];
+                changed = true;
+              }
+            }
           }
         }
       }

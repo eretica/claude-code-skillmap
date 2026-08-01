@@ -34,6 +34,42 @@ const FEATURE_CATEGORIES = [
   "plugins",
 ] as const;
 
+function sanitizeDailyRepos(v: unknown): UsageSummary["dailyRepos"] {
+  if (!v || typeof v !== "object") return undefined;
+  const out: NonNullable<UsageSummary["dailyRepos"]> = {};
+  for (const [date, repoMap] of Object.entries(v).slice(0, MAX_DAYS)) {
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      !repoMap ||
+      typeof repoMap !== "object"
+    )
+      continue;
+    const entry: NonNullable<UsageSummary["dailyRepos"]>[string] = {};
+    for (const [repo, bucket] of Object.entries(repoMap).slice(0, 100)) {
+      if (repo.length > MAX_KEY_LEN || !bucket || typeof bucket !== "object")
+        continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const b = bucket as any;
+      const features: Record<string, Record<string, number>> = {};
+      for (const category of FEATURE_CATEGORIES) {
+        const rec = b.features?.[category];
+        if (rec && typeof rec === "object")
+          features[category] = countRecord(rec);
+      }
+      entry[repo] = {
+        sessions: num(b.sessions),
+        skillSessions: num(b.skillSessions),
+        messages: num(b.messages),
+        toolCalls: num(b.toolCalls),
+        userPrompts: num(b.userPrompts),
+        features,
+      };
+    }
+    out[date] = entry;
+  }
+  return out;
+}
+
 function sanitizeDailyTokens(v: unknown): UsageSummary["dailyTokens"] {
   if (!v || typeof v !== "object") return undefined;
   const out: NonNullable<UsageSummary["dailyTokens"]> = {};
@@ -136,7 +172,9 @@ export function sanitizeSummary(body: unknown): UsageSummary {
     mcpTools: countRecord(b.mcpTools),
     slashCommands: countRecord(b.slashCommands),
     plugins: countRecord(b.plugins),
+    repos: countRecord(b.repos),
     tools: countRecord(b.tools),
+    dailyRepos: sanitizeDailyRepos(b.dailyRepos),
     dailyFeatures: sanitizeDailyFeatures(b.dailyFeatures),
     dailyTokens: sanitizeDailyTokens(b.dailyTokens),
     entrypoints: countRecord(b.entrypoints),

@@ -2,7 +2,10 @@ import { useMemo } from "react";
 import type { FeatureCategory, UsageSummary } from "../lib/types";
 import { CATEGORY_LABEL } from "../lib/teamStats";
 
-const CATEGORIES = Object.keys(CATEGORY_LABEL) as FeatureCategory[];
+// リポジトリは「おすすめ」する対象ではないので除く
+const CATEGORIES = (Object.keys(CATEGORY_LABEL) as FeatureCategory[]).filter(
+  (c) => c !== "repos",
+);
 
 interface Recommendation {
   category: FeatureCategory;

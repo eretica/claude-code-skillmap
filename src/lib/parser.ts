@@ -1,4 +1,4 @@
-import type { FeatureCategory, UsageSummary, TokenUsage } from "./types";
+import type { FeatureCategory, RepoDaily, UsageSummary, TokenUsage } from "./types";
 import { SUMMARY_SCHEMA_VERSION } from "./types";
 import { localDate } from "./dates";
 
@@ -29,6 +29,8 @@ interface Accum {
   plugins: Map<string, number>;
   tools: Map<string, number>;
   dailyFeatures: Map<string, Map<FeatureCategory, Map<string, number>>>;
+  repos: Map<string, number>;
+  dailyRepos: Map<string, Map<string, RepoBucket>>;
   entrypointSessions: Map<string, Set<string>>;
   modeSessions: Map<string, Set<string>>;
   permissionModeSessions: Map<string, Set<string>>;
@@ -61,12 +63,51 @@ function bump(map: Map<string, number>, key: string) {
   map.set(key, (map.get(key) ?? 0) + 1);
 }
 
-// 期間フィルタ用に、機能利用を日別にも積み上げる
+interface RepoBucket {
+  sessions: Set<string>;
+  skillSessions: Set<string>;
+  messages: number;
+  toolCalls: number;
+  userPrompts: number;
+  features: Map<Exclude<FeatureCategory, "repos">, Map<string, number>>;
+}
+
+// cwdの末尾ディレクトリ名だけをリポジトリ名として使う(フルパスは保持しない)
+function repoOf(record: { cwd?: unknown }): string | null {
+  if (typeof record.cwd !== "string") return null;
+  const name = record.cwd.split("/").filter(Boolean).pop();
+  return name && name.length > 0 ? name : null;
+}
+
+function repoBucket(acc: Accum, date: string, repo: string): RepoBucket {
+  let day = acc.dailyRepos.get(date);
+  if (!day) {
+    day = new Map();
+    acc.dailyRepos.set(date, day);
+  }
+  let bucket = day.get(repo);
+  if (!bucket) {
+    bucket = {
+      sessions: new Set(),
+      skillSessions: new Set(),
+      messages: 0,
+      toolCalls: 0,
+      userPrompts: 0,
+      features: new Map(),
+    };
+    day.set(repo, bucket);
+  }
+  return bucket;
+}
+
+// 期間フィルタ用に、機能利用を日別にも積み上げる。
+// repoが分かる場合はリポジトリ別の日別バケットにも同じカウントを積む
 function bumpDaily(
   acc: Accum,
   date: string | null,
   category: FeatureCategory,
   key: string,
+  repo?: string | null,
 ) {
   if (!date) return;
   let day = acc.dailyFeatures.get(date);
@@ -80,6 +121,15 @@ function bumpDaily(
     day.set(category, rec);
   }
   bump(rec, key);
+  if (repo && category !== "repos") {
+    const bucket = repoBucket(acc, date, repo);
+    let brec = bucket.features.get(category);
+    if (!brec) {
+      brec = new Map();
+      bucket.features.set(category, brec);
+    }
+    bump(brec, key);
+  }
 }
 
 function bumpSession(
@@ -109,6 +159,8 @@ function newAccum(): Accum {
     plugins: new Map(),
     tools: new Map(),
     dailyFeatures: new Map(),
+    repos: new Map(),
+    dailyRepos: new Map(),
     dailyTokens: new Map(),
     entrypointSessions: new Map(),
     modeSessions: new Map(),
@@ -152,10 +204,18 @@ function dailyEntry(acc: Accum, date: string) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function handleAssistant(acc: Accum, rec: any) {
   const date = dayOf(rec);
+  const repo = repoOf(rec);
+  if (repo && date) {
+    bump(acc.repos, repo);
+    bumpDaily(acc, date, "repos", repo);
+    const bucket = repoBucket(acc, date, repo);
+    bucket.messages++;
+  }
   const sessionId: string | undefined =
     typeof rec.sessionId === "string" ? rec.sessionId : undefined;
   if (sessionId) {
     acc.sessionIds.add(sessionId);
+    if (repo && date) repoBucket(acc, date, repo).sessions.add(sessionId);
     acc.sessionMessages.set(
       sessionId,
       (acc.sessionMessages.get(sessionId) ?? 0) + 1,
@@ -219,14 +279,17 @@ function handleAssistant(acc: Accum, rec: any) {
     if (!item || item.type !== "tool_use" || typeof item.name !== "string")
       continue;
     acc.toolCalls++;
-    if (date) dailyEntry(acc, date).toolCalls++;
+    if (date) {
+      dailyEntry(acc, date).toolCalls++;
+      if (repo) repoBucket(acc, date, repo).toolCalls++;
+    }
     const name: string = item.name;
 
     if (name.startsWith("mcp__")) {
       const parts = name.split("__");
       const mcpKey = `${parts[1] ?? "?"}/${parts.slice(2).join("__")}`;
       bump(acc.mcpTools, mcpKey);
-      bumpDaily(acc, date, "mcpTools", mcpKey);
+      bumpDaily(acc, date, "mcpTools", mcpKey, repo);
       continue;
     }
     bump(acc.tools, name);
@@ -235,15 +298,18 @@ function handleAssistant(acc: Accum, rec: any) {
       const skill = item.input?.skill;
       if (typeof skill === "string" && skill.length > 0) {
         bump(acc.skills, skill);
-        bumpDaily(acc, date, "skills", skill);
+        bumpDaily(acc, date, "skills", skill, repo);
         const plugin = pluginOf(skill);
         if (plugin) {
           bump(acc.plugins, plugin);
-          bumpDaily(acc, date, "plugins", plugin);
+          bumpDaily(acc, date, "plugins", plugin, repo);
         }
         if (sessionId) {
           acc.sessionsWithSkill.add(sessionId);
-          if (date) dailyEntry(acc, date).skillSessions.add(sessionId);
+          if (date) {
+            dailyEntry(acc, date).skillSessions.add(sessionId);
+            if (repo) repoBucket(acc, date, repo).skillSessions.add(sessionId);
+          }
         }
       }
     } else if (name === "Agent" || name === "Task") {
@@ -251,7 +317,7 @@ function handleAssistant(acc: Accum, rec: any) {
       const subKey =
         typeof sub === "string" && sub.length > 0 ? sub : "general-purpose";
       bump(acc.subagents, subKey);
-      bumpDaily(acc, date, "subagents", subKey);
+      bumpDaily(acc, date, "subagents", subKey, repo);
       if (sessionId) acc.sessionsWithSubagent.add(sessionId);
     }
   }
@@ -260,6 +326,7 @@ function handleAssistant(acc: Accum, rec: any) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function handleUser(acc: Accum, rec: any) {
   const date = dayOf(rec);
+  const repo = repoOf(rec);
   const msg = rec.message;
   if (!msg || typeof msg !== "object") return;
   const content = msg.content;
@@ -284,11 +351,11 @@ function handleUser(acc: Accum, rec: any) {
       if (!cmd) continue;
       isCommand = true;
       bump(acc.slashCommands, cmd);
-      bumpDaily(acc, date, "slashCommands", cmd);
+      bumpDaily(acc, date, "slashCommands", cmd, repo);
       const plugin = pluginOf(cmd.replace(/^\//, ""));
       if (plugin) {
         bump(acc.plugins, plugin);
-        bumpDaily(acc, date, "plugins", plugin);
+        bumpDaily(acc, date, "plugins", plugin, repo);
       }
     }
   }
@@ -296,7 +363,10 @@ function handleUser(acc: Accum, rec: any) {
   // スラッシュコマンドの実行行はコマンドとして数え、プロンプト数には含めない
   if (!isCommand) {
     acc.userPrompts++;
-    if (date) dailyEntry(acc, date).userPrompts++;
+    if (date) {
+      dailyEntry(acc, date).userPrompts++;
+      if (repo) repoBucket(acc, date, repo).userPrompts++;
+    }
   }
 }
 
@@ -414,7 +484,33 @@ export async function parseTranscripts(
     mcpTools: sortDesc(acc.mcpTools),
     slashCommands: sortDesc(acc.slashCommands),
     plugins: sortDesc(acc.plugins),
+    repos: sortDesc(acc.repos),
     tools: sortDesc(acc.tools),
+    dailyRepos: Object.fromEntries(
+      [...acc.dailyRepos.entries()]
+        .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+        .map(([date, repoMap]) => [
+          date,
+          Object.fromEntries(
+            [...repoMap.entries()].map(([repo, b]) => [
+              repo,
+              {
+                sessions: b.sessions.size,
+                skillSessions: b.skillSessions.size,
+                messages: b.messages,
+                toolCalls: b.toolCalls,
+                userPrompts: b.userPrompts,
+                features: Object.fromEntries(
+                  [...b.features.entries()].map(([cat, rec]) => [
+                    cat,
+                    sortDesc(rec),
+                  ]),
+                ),
+              } satisfies RepoDaily,
+            ]),
+          ),
+        ]),
+    ),
     dailyTokens: Object.fromEntries(
       [...acc.dailyTokens.entries()]
         .sort((a, b) => (a[0] < b[0] ? -1 : 1))

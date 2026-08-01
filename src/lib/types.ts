@@ -20,13 +20,26 @@ export interface DailyActivity {
   userPrompts?: number;
 }
 
-/** 期間フィルタの対象になる機能カテゴリ */
+/** 期間フィルタの対象になる機能カテゴリ(reposはcwd末尾のリポジトリ名) */
 export type FeatureCategory =
   | "skills"
   | "subagents"
   | "mcpTools"
   | "slashCommands"
-  | "plugins";
+  | "plugins"
+  | "repos";
+
+/** リポジトリ×日別の活動と機能利用(チーム集計のリポジトリフィルタに使う) */
+export interface RepoDaily {
+  sessions: number;
+  skillSessions: number;
+  messages: number;
+  toolCalls: number;
+  userPrompts: number;
+  features: Partial<
+    Record<Exclude<FeatureCategory, "repos">, Record<string, number>>
+  >;
+}
 
 export interface UsageSummary {
   schemaVersion: 1;
@@ -52,6 +65,10 @@ export interface UsageSummary {
   slashCommands: Record<string, number>;
   /** プラグイン名 -> 利用回数 (スキル名/コマンド名の "plugin:" プレフィックスから集計)。旧サマリーには存在しない */
   plugins?: Record<string, number>;
+  /** リポジトリ名(cwd末尾のみ、フルパスは含めない) -> アシスタントメッセージ数。旧サマリーには存在しない */
+  repos?: Record<string, number>;
+  /** 日付 -> リポジトリ -> 活動+機能利用。チーム集計のリポジトリフィルタ用。旧サマリーには存在しない */
+  dailyRepos?: Record<string, Record<string, RepoDaily>>;
   /** 日付 -> カテゴリ -> 項目名 -> 回数。チーム集計の期間フィルタに使う。旧サマリーには存在しない */
   dailyFeatures?: Record<
     string,

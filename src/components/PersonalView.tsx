@@ -259,6 +259,7 @@ export function PersonalView() {
       mcpTools,
       slashCommands: featureCounts(summary, "slashCommands", cutoff),
       plugins: featureCounts(summary, "plugins", cutoff),
+      repos: featureCounts(summary, "repos", cutoff),
       activity,
       daily,
       skillRate:
@@ -575,6 +576,11 @@ export function PersonalView() {
                 プラグイン由来のスキル/コマンド実行回数
               </p>
               <BarList data={view.plugins} />
+            </div>
+            <div className="card">
+              <h2>リポジトリ<InfoTip text="どのリポジトリでどれだけ使ったか(数値=アシスタントメッセージ数)。名前はディレクトリ名のみで、フルパスは含まれません。共有したくないリポジトリは除外パネルでチェックを外せます" /></h2>
+              <p className="card-desc">リポジトリ別のアクティビティ</p>
+              <BarList data={view.repos} color="var(--series-2)" />
             </div>
             <div className="card">
               <h2>モード利用{allTime}<InfoTip text="plan=実装前に計画を立てるモード。権限モードはツール実行の許可方式で、auto=自動許可、bypassPermissions=確認なし、など" /></h2>

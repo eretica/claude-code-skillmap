@@ -38,6 +38,8 @@ const CATEGORY_INFO: Record<FeatureCategory, string> = {
     "MCP(外部ツール連携)の server/tool 別利用回数。列名クリックで並べ替え",
   slashCommands: "チャット欄で実行したコマンドの回数。列名クリックで並べ替え",
   plugins: "プラグイン経由のスキル/コマンド実行回数。列名クリックで並べ替え",
+  repos:
+    "誰がどのリポジトリでClaude Codeを使っているか(数値=アシスタントメッセージ数)。リポジトリ名はディレクトリ名のみでフルパスは含まれません",
 };
 
 export function TeamHeatmap({

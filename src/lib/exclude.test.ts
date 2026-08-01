@@ -29,6 +29,19 @@ const base: UsageSummary = {
     },
     "2026-07-02": { skills: { "secret-skill": 1 } },
   },
+  repos: { "secret-repo": 5, "public-repo": 3 },
+  dailyRepos: {
+    "2026-07-01": {
+      "secret-repo": {
+        sessions: 1, skillSessions: 1, messages: 5, toolCalls: 2, userPrompts: 1,
+        features: { skills: { "public-skill": 1 } },
+      },
+      "public-repo": {
+        sessions: 1, skillSessions: 0, messages: 3, toolCalls: 1, userPrompts: 1,
+        features: { skills: { "secret-skill": 2, "public-skill": 1 } },
+      },
+    },
+  },
   sessionsWithSkill: 1,
   sessionsWithSubagent: 0,
 };
@@ -38,6 +51,7 @@ describe("applyExclusions", () => {
     const excluded = new Set([
       exKey("skills", "secret-skill"),
       exKey("slashCommands", "/secret-cmd"),
+      exKey("repos", "secret-repo"),
     ]);
     const out = applyExclusions(base, excluded);
 
@@ -48,8 +62,15 @@ describe("applyExclusions", () => {
     });
     expect(out.dailyFeatures?.["2026-07-01"]?.slashCommands).toEqual({});
     expect(out.dailyFeatures?.["2026-07-02"]?.skills).toEqual({});
+    // リポジトリ除外: dailyReposからも丸ごと消え、残るリポジトリ内の除外機能も消える
+    expect(out.repos).toEqual({ "public-repo": 3 });
+    expect(out.dailyRepos?.["2026-07-01"]?.["secret-repo"]).toBeUndefined();
+    expect(
+      out.dailyRepos?.["2026-07-01"]?.["public-repo"]?.features.skills,
+    ).toEqual({ "public-skill": 1 });
     // 除外語がJSON全体から消えていること
     expect(JSON.stringify(out)).not.toContain("secret-skill");
+    expect(JSON.stringify(out)).not.toContain("secret-repo");
     expect(JSON.stringify(out)).not.toContain("/secret-cmd");
   });
 

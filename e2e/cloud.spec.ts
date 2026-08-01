@@ -131,6 +131,29 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
   await expect(
     page.locator(".card", { hasText: "MCPツール × メンバー" }),
   ).toHaveCount(0);
+  await expect(
+    page.locator(".card", { hasText: "リポジトリ × メンバー" }),
+  ).toBeVisible();
+
+  // リポジトリフィルタ: 選ぶと全指標がそのリポジトリ内に絞られる
+  const before = await page
+    .locator(".stat-tile", { hasText: "合計セッション" })
+    .textContent();
+  await page
+    .locator("select", { hasText: "全リポジトリ" })
+    .selectOption("repo-alpha");
+  await expect
+    .poll(async () => page.evaluate(() => window.location.hash))
+    .toContain("repo=repo-alpha");
+  const after = await page
+    .locator(".stat-tile", { hasText: "合計セッション" })
+    .textContent();
+  expect(after).not.toBe(before);
+  // 絞り込み中はリポジトリ×メンバーのカードは出ない(自明なので)
+  await expect(
+    page.locator(".card", { hasText: "リポジトリ × メンバー" }),
+  ).toHaveCount(0);
+  await page.locator("select").first().selectOption("");
 
   // 4. 削除モードでのみセル削除できる(通常時はクリック無効)
   const row = page.locator(".heatmap tbody tr", { hasText: "demo-skill-a" });

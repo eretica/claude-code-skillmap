@@ -9,6 +9,7 @@ export const EXCLUDABLE_CATEGORIES = [
   ["subagents", "サブエージェント"],
   ["mcpTools", "MCPツール"],
   ["plugins", "プラグイン"],
+  ["repos", "リポジトリ"],
 ] as const;
 
 export type ExcludableCategory = (typeof EXCLUDABLE_CATEGORIES)[number][0];
@@ -46,6 +47,39 @@ export function applyExclusions(
         ]),
       )
     : undefined;
+  // リポジトリ別の日別データからも、除外リポジトリ丸ごと+除外機能項目を落とす
+  const dailyRepos = summary.dailyRepos
+    ? Object.fromEntries(
+        Object.entries(summary.dailyRepos).map(([date, repoMap]) => [
+          date,
+          Object.fromEntries(
+            Object.entries(repoMap)
+              .filter(([repo]) => !excluded.has(exKey("repos", repo)))
+              .map(([repo, bucket]) => [
+                repo,
+                {
+                  ...bucket,
+                  features: Object.fromEntries(
+                    Object.entries(bucket.features ?? {}).map(
+                      ([category, rec]) => [
+                        category,
+                        Object.fromEntries(
+                          Object.entries(rec ?? {}).filter(
+                            ([name]) =>
+                              !excluded.has(
+                                exKey(category as ExcludableCategory, name),
+                              ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                },
+              ]),
+          ),
+        ]),
+      )
+    : undefined;
   return {
     ...summary,
     skills: strip("skills"),
@@ -53,6 +87,8 @@ export function applyExclusions(
     subagents: strip("subagents"),
     mcpTools: strip("mcpTools"),
     plugins: strip("plugins"),
+    repos: strip("repos"),
     dailyFeatures,
+    dailyRepos,
   };
 }

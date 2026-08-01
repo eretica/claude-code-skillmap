@@ -17,6 +17,7 @@ const FEATURE_CATEGORIES: FeatureCategory[] = [
   "mcpTools",
   "slashCommands",
   "plugins",
+  "repos",
 ];
 
 function sortDesc(rec: Record<string, number>): Record<string, number> {
@@ -43,6 +44,10 @@ export function mergeSummaries(
   const dailyTokens = {
     ...(stored.dailyTokens ?? {}),
     ...(fresh.dailyTokens ?? {}),
+  };
+  const dailyRepos = {
+    ...(stored.dailyRepos ?? {}),
+    ...(fresh.dailyRepos ?? {}),
   };
 
   // カテゴリ合計はマージ済みの日別カウントから再計算する
@@ -101,12 +106,14 @@ export function mergeSummaries(
     dailyActivity,
     dailyFeatures,
     dailyTokens,
+    dailyRepos,
     tokensByModel,
     skills: sortDesc(catTotals.skills),
     subagents: sortDesc(catTotals.subagents),
     mcpTools: sortDesc(catTotals.mcpTools),
     slashCommands: sortDesc(catTotals.slashCommands),
     plugins: sortDesc(catTotals.plugins),
+    repos: sortDesc(catTotals.repos),
     sessionsWithSkill:
       sum((d) => d.skillSessions) || fresh.sessionsWithSkill,
   };

@@ -11,6 +11,7 @@ export const CATEGORY_LABEL: Record<FeatureCategory, string> = {
   mcpTools: "MCPツール",
   slashCommands: "スラッシュコマンド",
   plugins: "プラグイン",
+  repos: "リポジトリ",
 };
 
 export const PERIOD_LABEL: [Period, string][] = [
@@ -23,12 +24,26 @@ export function cutoffOf(period: Period): string | null {
   return period === "all" ? null : daysAgo(period - 1);
 }
 
-// 期間内の機能利用カウント。dailyFeaturesがない旧形式サマリーは全期間値で代用する
+// 期間内の機能利用カウント。dailyFeaturesがない旧形式サマリーは全期間値で代用する。
+// repoを指定すると、そのリポジトリ内での利用だけを dailyRepos から集計する
 export function featureCounts(
   m: UsageSummary,
   category: FeatureCategory,
   cutoff: string | null,
+  repo?: string | null,
 ): Record<string, number> {
+  if (repo) {
+    if (category === "repos") return {};
+    const out: Record<string, number> = {};
+    for (const [date, repoMap] of Object.entries(m.dailyRepos ?? {})) {
+      if (cutoff && date < cutoff) continue;
+      for (const [key, v] of Object.entries(
+        repoMap[repo]?.features?.[category] ?? {},
+      ))
+        out[key] = (out[key] ?? 0) + v;
+    }
+    return out;
+  }
   if (!cutoff || !m.dailyFeatures) return m[category] ?? {};
   const out: Record<string, number> = {};
   for (const [date, cats] of Object.entries(m.dailyFeatures)) {
@@ -42,7 +57,20 @@ export function featureCounts(
 export function activityIn(
   m: UsageSummary,
   cutoff: string | null,
+  repo?: string | null,
 ): { sessions: number; messages: number } {
+  if (repo) {
+    let sessions = 0;
+    let messages = 0;
+    for (const [date, repoMap] of Object.entries(m.dailyRepos ?? {})) {
+      if (cutoff && date < cutoff) continue;
+      const b = repoMap[repo];
+      if (!b) continue;
+      sessions += b.sessions;
+      messages += b.messages;
+    }
+    return { sessions, messages };
+  }
   if (!cutoff)
     return {
       sessions: m.totals.sessions,
@@ -80,7 +108,21 @@ export function totalTokens(m: UsageSummary): TokenUsage {
  * バックフィル日(skillSessions情報なし)を分母に入れると率が不当に希釈されるため、
  * スキル情報を持つ日だけで計算する。旧形式は従来の全期間値にフォールバック
  */
-export function skillRateParts(m: UsageSummary): { num: number; den: number } {
+export function skillRateParts(
+  m: UsageSummary,
+  repo?: string | null,
+): { num: number; den: number } {
+  if (repo) {
+    let num = 0;
+    let den = 0;
+    for (const repoMap of Object.values(m.dailyRepos ?? {})) {
+      const b = repoMap[repo];
+      if (!b) continue;
+      num += b.skillSessions;
+      den += b.sessions;
+    }
+    return { num, den };
+  }
   const days = (m.dailyActivity ?? []).filter(
     (d) => typeof d.skillSessions === "number",
   );
@@ -94,18 +136,31 @@ export function skillRateParts(m: UsageSummary): { num: number; den: number } {
 }
 
 /** スキルを1回以上使ったセッションの割合(%) */
-export function skillRate(m: UsageSummary): number {
-  const { num, den } = skillRateParts(m);
+export function skillRate(m: UsageSummary, repo?: string | null): number {
+  const { num, den } = skillRateParts(m, repo);
   return den > 0 ? Math.round((num / den) * 100) : 0;
 }
 
 /** 期間内に使った機能の種類数(スキル+サブエージェント+MCP) */
-export function diversity(m: UsageSummary, cutoff: string | null): number {
+export function diversity(
+  m: UsageSummary,
+  cutoff: string | null,
+  repo?: string | null,
+): number {
   return (
-    Object.keys(featureCounts(m, "skills", cutoff)).length +
-    Object.keys(featureCounts(m, "subagents", cutoff)).length +
-    Object.keys(featureCounts(m, "mcpTools", cutoff)).length
+    Object.keys(featureCounts(m, "skills", cutoff, repo)).length +
+    Object.keys(featureCounts(m, "subagents", cutoff, repo)).length +
+    Object.keys(featureCounts(m, "mcpTools", cutoff, repo)).length
   );
+}
+
+/** リポジトリフィルタ用: メンバー全員から登場するリポジトリ名の一覧(利用量順) */
+export function repoNames(members: UsageSummary[]): string[] {
+  const totals = new Map<string, number>();
+  for (const m of members)
+    for (const [repo, n] of Object.entries(m.repos ?? {}))
+      totals.set(repo, (totals.get(repo) ?? 0) + n);
+  return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([r]) => r);
 }
 
 export function median(values: number[]): number {

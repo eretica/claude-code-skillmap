@@ -72,11 +72,14 @@ export function CompareCard({
   target,
   onTargetChange,
   cutoff,
+  repo = null,
 }: {
   members: UsageSummary[];
   target: UsageSummary;
   onTargetChange: (name: string) => void;
   cutoff: string | null;
+  /** リポジトリフィルタ(指定時は全指標がそのリポジトリ内の値になる) */
+  repo?: string | null;
 }) {
   // 比較の基準: チーム平均、またはお手本にしたい特定メンバー(1対1比較)
   const [baseline, setBaseline] = useState<string>("avg");
@@ -92,18 +95,28 @@ export function CompareCard({
     value: (m: UsageSummary) => number;
     unit?: string;
   }[] = [
-    { label: "セッション数", value: (m) => activityIn(m, cutoff).sessions },
-    { label: "メッセージ数", value: (m) => activityIn(m, cutoff).messages },
+    {
+      label: "セッション数",
+      value: (m) => activityIn(m, cutoff, repo).sessions,
+    },
+    {
+      label: "メッセージ数",
+      value: (m) => activityIn(m, cutoff, repo).messages,
+    },
     {
       label: "スキル利用回数",
-      value: (m) => sumOf(featureCounts(m, "skills", cutoff)),
+      value: (m) => sumOf(featureCounts(m, "skills", cutoff, repo)),
     },
     {
       label: "サブエージェント起動",
-      value: (m) => sumOf(featureCounts(m, "subagents", cutoff)),
+      value: (m) => sumOf(featureCounts(m, "subagents", cutoff, repo)),
     },
-    { label: "スキル利用セッション率", value: skillRate, unit: "%" },
-    { label: "活用機能の種類", value: (m) => diversity(m, cutoff) },
+    {
+      label: "スキル利用セッション率",
+      value: (m) => skillRate(m, repo),
+      unit: "%",
+    },
+    { label: "活用機能の種類", value: (m) => diversity(m, cutoff, repo) },
   ];
 
   return (
@@ -139,6 +152,7 @@ export function CompareCard({
       </div>
       <p className="card-desc">
         選んだメンバーと{baseLabel}の比較。縦線はチーム中央値。
+        {repo ? `リポジトリ「${repo}」内の値です。` : ""}
         {cutoff ? "件数系は期間内の値です。" : ""}
         スキル利用セッション率のみ全期間の値です。
       </p>

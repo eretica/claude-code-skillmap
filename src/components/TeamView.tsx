@@ -13,6 +13,7 @@ import {
   cutoffOf,
   diversity,
   featureCounts,
+  repoNames,
   skillRate,
   sumOf,
   totalTokens,
@@ -30,6 +31,7 @@ import { TeamDailyChart, TokenChart } from "./ChartsLazy";
 
 const FEATURE_CATEGORIES: FeatureCategory[] = [
   "skills",
+  "repos",
   "subagents",
   "mcpTools",
   "slashCommands",
@@ -61,6 +63,10 @@ export function TeamView() {
   const [compareTarget, setCompareTarget] = useState<string>(
     () => getHashParam("target") ?? "",
   );
+  // リポジトリフィルタ: 基本は横断表示、選ぶと全指標がそのリポジトリ内に絞られる
+  const [repoFilter, setRepoFilter] = useState<string>(
+    () => getHashParam("repo") ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,8 +74,9 @@ export function TeamView() {
       category: null, // 旧バージョンのURL互換のため掃除だけする
       period: period === "all" ? null : String(period),
       target: compareTarget || null,
+      repo: repoFilter || null,
     });
-  }, [period, compareTarget]);
+  }, [period, compareTarget, repoFilter]);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Map<string, string>>(new Map());
 
@@ -102,28 +109,13 @@ export function TeamView() {
         return;
       try {
         await removeSummaryItem(memberName, category, feature);
-        setMembers((prev) =>
-          prev.map((m) => {
-            if (m.name !== memberName) return m;
-            const rec = { ...(m[category] ?? {}) };
-            delete rec[feature];
-            const dailyFeatures = m.dailyFeatures
-              ? Object.fromEntries(
-                  Object.entries(m.dailyFeatures).map(([date, cats]) => {
-                    const catRec = { ...(cats[category] ?? {}) };
-                    delete catRec[feature];
-                    return [date, { ...cats, [category]: catRec }];
-                  }),
-                )
-              : undefined;
-            return { ...m, [category]: rec, dailyFeatures };
-          }),
-        );
+        // dailyRepos等のネスト構造も含めた整合はサーバー側で取れているので再読込する
+        await loadFromServer();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [],
+    [loadFromServer],
   );
 
   const removeMember = async (name: string) => {
@@ -158,8 +150,13 @@ export function TeamView() {
   };
 
   const cutoff = cutoffOf(period);
+  const repos = useMemo(() => repoNames(members), [members]);
+  const repo = repoFilter && repos.includes(repoFilter) ? repoFilter : null;
   const legacyNames = cutoff
     ? members.filter((m) => !m.dailyFeatures).map((m) => m.name)
+    : [];
+  const noRepoNames = repo
+    ? members.filter((m) => !m.dailyRepos).map((m) => m.name)
     : [];
 
   // 期間を適用した全カテゴリの集計はレンダーごとに再計算しない
@@ -172,18 +169,38 @@ export function TeamView() {
       map.set(
         cat,
         new Map(
-          members.map((m) => [m.name, featureCounts(m, cat, cutoff)] as const),
+          members.map(
+            (m) => [m.name, featureCounts(m, cat, cutoff, repo)] as const,
+          ),
         ),
       );
     }
     return map;
-  }, [members, cutoff]);
+  }, [members, cutoff, repo]);
   const skillCountsOf = countsByCat.get("skills")!;
   const activityOf = useMemo(
     () =>
-      new Map(members.map((m) => [m.name, activityIn(m, cutoff)] as const)),
-    [members, cutoff],
+      new Map(
+        members.map((m) => [m.name, activityIn(m, cutoff, repo)] as const),
+      ),
+    [members, cutoff, repo],
   );
+  // 日別比較チャート用: リポジトリフィルタ時はdailyReposから日別系列を組み立てる
+  const membersForDaily = useMemo(() => {
+    if (!repo) return members;
+    return members.map((m) => ({
+      name: m.name,
+      dailyActivity: Object.entries(m.dailyRepos ?? {})
+        .filter(([, repoMap]) => repoMap[repo])
+        .map(([date, repoMap]) => ({
+          date,
+          sessions: repoMap[repo].sessions,
+          messages: repoMap[repo].messages,
+          toolCalls: repoMap[repo].toolCalls,
+        }))
+        .sort((a, b) => (a.date < b.date ? -1 : 1)),
+    }));
+  }, [members, repo]);
 
   const target =
     members.find((m) => m.name === compareTarget) ?? members[0] ?? null;
@@ -236,6 +253,21 @@ export function TeamView() {
                 </button>
               ))}
             </div>
+            {repos.length > 0 && (
+              <select
+                className="member-select"
+                value={repo ?? ""}
+                onChange={(e) => setRepoFilter(e.target.value)}
+                title="リポジトリで絞り込み(全指標に適用)"
+              >
+                <option value="">全リポジトリ</option>
+                {repos.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            )}
             <div className="member-list">
               {members.map((m) => (
                 <span
@@ -260,6 +292,13 @@ export function TeamView() {
               ))}
             </div>
           </div>
+
+          {noRepoNames.length > 0 && (
+            <div className="progress">
+              ※ {noRepoNames.join(", ")}{" "}
+              はリポジトリ情報のない旧形式のため、このフィルタでは0件になります(再共有で対応)
+            </div>
+          )}
 
           {legacyNames.length > 0 && (
             <div className="progress">
@@ -302,6 +341,7 @@ export function TeamView() {
               target={target}
               onTargetChange={setCompareTarget}
               cutoff={cutoff}
+              repo={repo}
             />
           )}
 
@@ -344,7 +384,7 @@ export function TeamView() {
           {/* メンバー列の一覧性を優先し、カテゴリ別も常に全幅の縦積みで表示する */}
           <div>
             {(
-              ["subagents", "mcpTools", "slashCommands", "plugins"] as const
+              ["repos", "subagents", "mcpTools", "slashCommands", "plugins"] as const
             ).map((cat) => (
               <TeamHeatmap
                 key={cat}
@@ -368,7 +408,7 @@ export function TeamView() {
             <p className="card-desc">
               メンバーごとのアシスタントメッセージ数/日
             </p>
-            <TeamDailyChart members={members} cutoff={cutoff} />
+            <TeamDailyChart members={membersForDaily} cutoff={cutoff} />
           </div>
 
           <div className="card-grid">
@@ -394,7 +434,7 @@ export function TeamView() {
               </p>
               <BarList
                 data={Object.fromEntries(
-                  members.map((m) => [m.name, skillRate(m)]),
+                  members.map((m) => [m.name, skillRate(m, repo)]),
                 )}
                 unit="%"
               />
@@ -407,7 +447,7 @@ export function TeamView() {
               </p>
               <BarList
                 data={Object.fromEntries(
-                  members.map((m) => [m.name, diversity(m, cutoff)]),
+                  members.map((m) => [m.name, diversity(m, cutoff, repo)]),
                 )}
                 color="var(--series-3)"
               />

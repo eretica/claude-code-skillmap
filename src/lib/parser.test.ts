@@ -77,6 +77,7 @@ describe("parseTranscripts", () => {
         type: "user",
         timestamp: TS,
         sessionId: "s1",
+        cwd: "/Users/secret/project",
         message: {
           content:
             "<command-name>/review-dms:branch</command-name> SECRET_USER",
@@ -129,6 +130,17 @@ describe("parseTranscripts", () => {
     expect(s.dailyActivity[0].skillSessions).toBe(1);
     expect(s.dailyFeatures?.[DAY]?.skills).toEqual({ "figma:figma-use": 1 });
     expect(s.dailyFeatures?.[DAY]?.slashCommands).toEqual({
+      "/review-dms:branch": 1,
+    });
+
+    // リポジトリ: cwdの末尾ディレクトリ名だけが記録される(フルパスは残らない)
+    expect(s.repos).toEqual({ project: 4 });
+    const bucket = s.dailyRepos?.[DAY]?.["project"];
+    expect(bucket?.messages).toBe(4);
+    expect(bucket?.sessions).toBe(1);
+    expect(bucket?.skillSessions).toBe(1);
+    expect(bucket?.features.skills).toEqual({ "figma:figma-use": 1 });
+    expect(bucket?.features.slashCommands).toEqual({
       "/review-dms:branch": 1,
     });
 
