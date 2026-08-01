@@ -84,8 +84,7 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
 
   await modal.locator(".modal-field input").fill("e2e-user");
 
-  // スキルの除外(モーダル内)
-  await modal.getByText("スキル等の細かい除外を編集").click();
+  // スキルの除外(モーダル内・常に展開されている)
   await modal
     .locator(".exclude-item", { hasText: "demo-skill-b" })
     .locator("input")

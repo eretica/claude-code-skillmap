@@ -16,6 +16,7 @@ import { CAN_SHARE } from "../lib/config";
 import { fetchTeamSummaries, shareSummary } from "../lib/api";
 import { mergeSummaries } from "../lib/merge";
 import { isStatsCacheFile, parseStatsCacheFile } from "../lib/statsCache";
+import type { ExcludableCategory } from "../lib/exclude";
 import { EXCLUDABLE_CATEGORIES, applyExclusions, exKey } from "../lib/exclude";
 import type { Period } from "../lib/teamStats";
 import {
@@ -375,6 +376,24 @@ export function PersonalView() {
       </div>
     ) : null;
 
+  // カテゴリ内の全項目を一括で含める/除外する
+  const setCategoryExcluded = (
+    category: ExcludableCategory,
+    exclude: boolean,
+  ) => {
+    const items = Object.keys(summary?.[category] ?? {});
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      for (const item of items) {
+        const key = exKey(category, item);
+        if (exclude) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+    setShareState("idle");
+  };
+
   const excludeGroups = () =>
     EXCLUDABLE_CATEGORIES.filter(([c]) => c !== "repos").map(
       ([category, label]) => {
@@ -382,7 +401,23 @@ export function PersonalView() {
         if (items.length === 0) return null;
         return (
           <div key={category} className="exclude-group">
-            <div className="exclude-group-label">{label}</div>
+            <div className="exclude-group-label">
+              {label}
+              <button
+                className="bl-more"
+                style={{ marginLeft: 10 }}
+                onClick={() => setCategoryExcluded(category, false)}
+              >
+                すべて選択
+              </button>
+              <button
+                className="bl-more"
+                style={{ marginLeft: 8 }}
+                onClick={() => setCategoryExcluded(category, true)}
+              >
+                すべて解除
+              </button>
+            </div>
             <div className="exclude-items">
               {items.map((item) => {
                 const key = exKey(category, item);
@@ -738,19 +773,14 @@ export function PersonalView() {
           </p>
           {repoSelectBlock()}
           <div className="modal-summary">
-            スキル {Object.keys(outgoing.skills).length} 種 ・ サブエージェント{" "}
-            {Object.keys(outgoing.subagents).length} 種 ・ コマンド{" "}
-            {Object.keys(outgoing.slashCommands).length} 種
-            {excluded.size > 0 && ` (${excluded.size} 項目を除外中)`}
+            {CAN_SHARE ? "共有" : "出力"}に含まれる項目(チェックを外すと除外)
+            {excluded.size > 0 && ` ・ ${excluded.size} 項目を除外中`}
           </div>
-          <details className="chart-table" style={{ marginTop: 4 }}>
-            <summary>スキル等の細かい除外を編集</summary>
-            <div style={{ marginTop: 8 }}>{excludeGroups()}</div>
-          </details>
+          {excludeGroups()}
           <button
             className="bl-more"
             onClick={() => setModalShowJson((v) => !v)}
-            style={{ marginTop: 8 }}
+            style={{ marginTop: 10 }}
           >
             {modalShowJson ? "JSONを隠す" : "出力されるJSONを見る"}(
             {(JSON.stringify(outgoing).length / 1024).toFixed(1)} KB)

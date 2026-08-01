@@ -557,8 +557,9 @@ button.bl-more:hover {
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 12px;
-  width: min(560px, 100%);
-  max-height: 88vh;
+  width: 88vw;
+  max-width: 1400px;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
@@ -595,9 +596,15 @@ button.bl-more:hover {
 .modal-foot {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  padding: 14px 20px;
+  gap: 8px;
+  padding: 12px 20px;
   border-top: 1px solid var(--grid);
+}
+
+/* フッターのボタンは控えめなサイズに */
+.modal-foot button {
+  padding: 6px 14px;
+  font-size: 13px;
 }
 
 .modal-summary {
