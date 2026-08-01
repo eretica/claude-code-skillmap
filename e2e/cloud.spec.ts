@@ -19,11 +19,20 @@ test("ルートは個人解析のみでアップロードできない", async ({
     .first()
     .setInputFiles("e2e/fixtures/projects");
   await expect(page.locator(".stat-tile").first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "チームに共有" })).toHaveCount(
+  await expect(page.getByRole("button", { name: "チームに共有…" })).toHaveCount(
+    0,
+  );
+  // エクスポートはモーダル経由。開くと共有ボタンはなくエクスポートのみ
+  await page
+    .getByRole("button", { name: "サマリーJSONをエクスポート…" })
+    .click();
+  const modal = page.locator(".modal");
+  await expect(modal).toBeVisible();
+  await expect(modal.getByRole("button", { name: /として共有する/ })).toHaveCount(
     0,
   );
   await expect(
-    page.getByRole("button", { name: "サマリーJSONをエクスポート" }),
+    modal.getByRole("button", { name: "JSONをエクスポート" }),
   ).toBeVisible();
 });
 
@@ -68,37 +77,39 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
     page.locator(".stat-tile", { hasText: "セッション数" }).first(),
   ).toContainText("2026-05-01");
 
-  await page.locator(".exclude-panel > summary").click();
-  const excludeItem = page.locator(".exclude-item", {
-    hasText: "demo-skill-b",
-  });
-  await excludeItem.locator("input").uncheck();
+  // 共有はモーダルで完結: 表示名入力・除外・リポジトリ選択・確認・共有
+  await page.getByRole("button", { name: "チームに共有…" }).click();
+  const modal = page.locator(".modal");
+  await expect(modal).toBeVisible();
 
-  await page
-    .locator(".controls-row input[type=text]")
-    .first()
-    .fill("e2e-user");
+  await modal.locator(".modal-field input").fill("e2e-user");
 
-  // リポジトリはopt-in: 1つも選ばずに共有しようとするとエラーで止まる
-  await page.getByRole("button", { name: "チームに共有" }).click();
-  await expect(page.getByText(/リポジトリを1つ以上選んで/)).toBeVisible();
+  // スキルの除外(モーダル内)
+  await modal.getByText("スキル等の細かい除外を編集").click();
+  await modal
+    .locator(".exclude-item", { hasText: "demo-skill-b" })
+    .locator("input")
+    .uncheck();
 
-  // demo-repo(fixtureのcwd末尾)を選択して再度共有
-  await page
+  // リポジトリ未選択なら確定ボタンが無効
+  await expect(
+    modal.getByRole("button", { name: "リポジトリを選んでください" }),
+  ).toBeDisabled();
+
+  // demo-repo(fixtureのcwd末尾)を選択
+  await modal
     .locator(".repo-select .exclude-item", { hasText: "demo-repo" })
     .locator("input")
     .check();
 
-  // 送信内容プレビュー: 除外した項目が実際に含まれていないことを現物で確認できる
-  await page.getByRole("button", { name: "送信内容を確認" }).click();
-  const preview = page.locator(".preview-json");
-  await expect(preview).toContainText('"schemaVersion": 1');
+  // 送信JSONの現物で、除外項目が含まれずリポジトリが入っていることを確認
+  await modal.getByRole("button", { name: /出力されるJSONを見る/ }).click();
+  const preview = modal.locator(".preview-json");
   await expect(preview).toContainText("demo-skill-a");
   await expect(preview).not.toContainText("demo-skill-b");
   await expect(preview).toContainText("demo-repo");
-  await page.getByRole("button", { name: "内容を閉じる" }).click();
 
-  await page.getByRole("button", { name: "チームに共有" }).click();
+  await modal.getByRole("button", { name: /として共有する/ }).click();
   await expect(page.getByText("共有しました")).toBeVisible();
 
   // 3. チーム集計に反映され、除外した項目はe2e-userの列に現れない

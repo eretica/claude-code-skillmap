@@ -28,6 +28,7 @@ import {
 } from "../lib/teamStats";
 import { weeklyTrend } from "../lib/trend";
 import { Dropzone } from "./Dropzone";
+import { Modal } from "./Modal";
 import { InfoTip } from "./InfoTip";
 import { StatTile } from "./StatTile";
 import { BarList } from "./BarList";
@@ -68,9 +69,9 @@ export function PersonalView() {
       return new Set();
     }
   });
-  const [selectPanelOpen, setSelectPanelOpen] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [modalShowJson, setModalShowJson] = useState(false);
   const [period, setPeriod] = useState<Period>("all");
-  const [showPreview, setShowPreview] = useState(false);
   const [savedHandle, setSavedHandle] = useState<unknown | null>(null);
   const [notice, setNotice] = useState<{
     kind: "info" | "error";
@@ -254,18 +255,13 @@ export function PersonalView() {
   const selectedRepoCount = allRepos.filter((r) =>
     includedRepos.has(r),
   ).length;
+  // リポジトリがあるのに1つも選んでいない = 共有・出力を止める(誤爆防止)
+  const repoGateBlocked = allRepos.length > 0 && selectedRepoCount === 0;
 
   const share = async () => {
     if (!outgoing || !summary || !name.trim()) return;
-    // 誤爆防止: リポジトリがあるのに1つも選んでいなければ、選択を促して中断
-    if (allRepos.length > 0 && selectedRepoCount === 0) {
-      setSelectPanelOpen(true);
-      setShareError(
-        "共有するリポジトリを1つ以上選んでください(機密リポジトリを含めないための確認です)。",
-      );
-      setShareState("error");
-      return;
-    }
+    // 誤爆防止: リポジトリがあるのに1つも選んでいなければ共有しない(ボタンも無効)
+    if (allRepos.length > 0 && selectedRepoCount === 0) return;
     setShareState("sending");
     try {
       // 蓄積: サーバーの保存分と日付マージしてから送る。
@@ -284,6 +280,7 @@ export function PersonalView() {
       }
       await shareSummary(payload);
       setShareState("done");
+      setShareModalOpen(false);
     } catch (e) {
       setShareError(e instanceof Error ? e.message : String(e));
       setShareState("error");
@@ -336,6 +333,75 @@ export function PersonalView() {
   );
 
   const allTime = cutoff ? " (全期間)" : "";
+
+  // リポジトリのopt-in選択ブロック(インラインパネルと共有モーダルで共用)
+  const repoSelectBlock = () =>
+    allRepos.length > 0 ? (
+      <div className="exclude-group repo-select">
+        <div className="exclude-group-label">
+          含めるリポジトリ(既定: なし)
+          <button
+            className="bl-more"
+            style={{ marginLeft: 10 }}
+            onClick={() => setIncludedRepos(new Set(allRepos))}
+          >
+            すべて選択
+          </button>
+          <button
+            className="bl-more"
+            style={{ marginLeft: 8 }}
+            onClick={() => setIncludedRepos(new Set())}
+          >
+            すべて解除
+          </button>
+        </div>
+        <p className="card-desc" style={{ margin: "2px 0 6px" }}>
+          リポジトリは<strong>選んだものだけ</strong>
+          {CAN_SHARE ? "共有" : "出力"}
+          されます(機密リポジトリの誤爆防止)。名前はディレクトリ名のみです。
+        </p>
+        <div className="exclude-items">
+          {allRepos.map((repo) => (
+            <label key={repo} className="exclude-item">
+              <input
+                type="checkbox"
+                checked={includedRepos.has(repo)}
+                onChange={() => toggleRepo(repo)}
+              />
+              {repo}
+            </label>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
+  const excludeGroups = () =>
+    EXCLUDABLE_CATEGORIES.filter(([c]) => c !== "repos").map(
+      ([category, label]) => {
+        const items = Object.keys(summary?.[category] ?? {});
+        if (items.length === 0) return null;
+        return (
+          <div key={category} className="exclude-group">
+            <div className="exclude-group-label">{label}</div>
+            <div className="exclude-items">
+              {items.map((item) => {
+                const key = exKey(category, item);
+                return (
+                  <label key={item} className="exclude-item">
+                    <input
+                      type="checkbox"
+                      checked={!excluded.has(key)}
+                      onChange={() => toggleExcluded(key)}
+                    />
+                    {item}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        );
+      },
+    );
 
   return (
     <div>
@@ -396,149 +462,22 @@ export function PersonalView() {
 
       {summary && outgoing && view && (
         <>
-          <details
-            className="card exclude-panel"
-            open={selectPanelOpen}
-            onToggle={(e) => setSelectPanelOpen(e.currentTarget.open)}
-          >
-            <summary>
-              {CAN_SHARE ? "共有する内容を選ぶ" : "出力する内容を選ぶ"}
-              {allRepos.length > 0 && (
-                <span
-                  className="exclude-count"
-                  style={{
-                    color:
-                      selectedRepoCount === 0
-                        ? "var(--series-2)"
-                        : "var(--good-text)",
-                  }}
-                >
-                  リポジトリ {selectedRepoCount}/{allRepos.length} 選択
-                </span>
-              )}
-              {excluded.size > 0 && (
-                <span className="exclude-count">{excluded.size} 項目を除外中</span>
-              )}
-            </summary>
-
-            {allRepos.length > 0 && (
-              <div className="exclude-group repo-select">
-                <div className="exclude-group-label">
-                  含めるリポジトリ(既定: なし)
-                  <button
-                    className="bl-more"
-                    style={{ marginLeft: 10 }}
-                    onClick={() => setIncludedRepos(new Set(allRepos))}
-                  >
-                    すべて選択
-                  </button>
-                  <button
-                    className="bl-more"
-                    style={{ marginLeft: 8 }}
-                    onClick={() => setIncludedRepos(new Set())}
-                  >
-                    すべて解除
-                  </button>
-                </div>
-                <p className="card-desc" style={{ margin: "2px 0 6px" }}>
-                  リポジトリは<strong>選んだものだけ</strong>
-                  {CAN_SHARE ? "共有" : "出力"}
-                  されます(機密リポジトリの誤爆防止)。名前はディレクトリ名のみです。
-                </p>
-                <div className="exclude-items">
-                  {allRepos.map((repo) => (
-                    <label key={repo} className="exclude-item">
-                      <input
-                        type="checkbox"
-                        checked={includedRepos.has(repo)}
-                        onChange={() => toggleRepo(repo)}
-                      />
-                      {repo}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <p className="card-desc">
-              下のスキル等はチェックを外した項目が
-              {CAN_SHARE ? "共有" : "出力"}
-              から除外されます(ダッシュボード表示には影響しません)。設定はこのブラウザに記憶されます。
-            </p>
-            {EXCLUDABLE_CATEGORIES.filter(([c]) => c !== "repos").map(
-              ([category, label]) => {
-                const items = Object.keys(summary[category] ?? {});
-                if (items.length === 0) return null;
-                return (
-                  <div key={category} className="exclude-group">
-                    <div className="exclude-group-label">{label}</div>
-                    <div className="exclude-items">
-                      {items.map((item) => {
-                        const key = exKey(category, item);
-                        return (
-                          <label key={item} className="exclude-item">
-                            <input
-                              type="checkbox"
-                              checked={!excluded.has(key)}
-                              onChange={() => toggleExcluded(key)}
-                            />
-                            {item}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              },
-            )}
-          </details>
-
           <div className="controls-row">
-            <input
-              type="text"
-              placeholder="表示名 (例: username)"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
+            <button
+              className="primary"
+              onClick={() => {
                 setShareState("idle");
+                setModalShowJson(false);
+                setShareModalOpen(true);
               }}
-            />
-            <button
-              className={CAN_SHARE ? "ghost" : "primary"}
-              onClick={() =>
-                downloadJson(
-                  outgoing,
-                  `claude-usage-${name.trim() || "no-name"}.json`,
-                )
-              }
             >
-              サマリーJSONをエクスポート
-            </button>
-            {CAN_SHARE && (
-              <button
-                className="primary"
-                disabled={!name.trim() || shareState === "sending"}
-                onClick={share}
-                title={!name.trim() ? "表示名を入力してください" : undefined}
-              >
-                {shareState === "sending" ? "送信中…" : "チームに共有"}
-              </button>
-            )}
-            <button
-              className="ghost"
-              onClick={() => setShowPreview((v) => !v)}
-            >
-              {showPreview
-                ? "内容を閉じる"
-                : CAN_SHARE
-                  ? "送信内容を確認"
-                  : "出力内容を確認"}
+              {CAN_SHARE ? "チームに共有…" : "サマリーJSONをエクスポート…"}
             </button>
             <span className="empty-note">
               {allRepos.length > 0 &&
                 `リポジトリ ${selectedRepoCount}/${allRepos.length} 選択・`}
               {excluded.size > 0 && `${excluded.size} 項目を除外・`}
-              集計値のみが{CAN_SHARE ? "共有" : "出力"}されます(会話・パス・コードは含まれません)
+              対象は次の画面で選べます(集計値のみ・会話やパスは含まれません)
             </span>
           </div>
 
@@ -567,30 +506,9 @@ export function PersonalView() {
             </span>
           </div>
 
-          {showPreview && (
-            <div className="card">
-              <h2>{CAN_SHARE ? "送信" : "出力"}されるJSON(これがすべてです)</h2>
-              <p className="card-desc">
-                {CAN_SHARE ? "「チームに共有」で送信" : "エクスポートで出力"}
-                されるのはこの内容だけです。会話本文・ファイルパス・コード・
-                セッションIDが含まれていないことを確認できます(
-                {(JSON.stringify(outgoing).length / 1024).toFixed(1)} KB)。
-                {CAN_SHARE &&
-                  " サーバー保存時には、過去に共有済みの内容(既にサーバーにあるデータ)と日付単位でマージされます。"}
-              </p>
-              <pre className="preview-json">
-                {JSON.stringify(outgoing, null, 2)}
-              </pre>
-            </div>
-          )}
           {shareState === "done" && (
             <div className="progress" style={{ color: "var(--good-text)" }}>
               共有しました。「チーム集計」タブに反映されます(過去の共有分とは日付単位でマージされ、履歴は蓄積されます)。
-            </div>
-          )}
-          {shareState === "error" && (
-            <div className="progress" style={{ color: "var(--series-2)" }}>
-              共有に失敗しました: {shareError}
             </div>
           )}
 
@@ -749,6 +667,105 @@ export function PersonalView() {
             <BarList data={summary.tools} limit={15} />
           </div>
         </>
+      )}
+
+      {shareModalOpen && summary && outgoing && (
+        <Modal
+          title={CAN_SHARE ? "チームに共有" : "サマリーJSONをエクスポート"}
+          onClose={() => setShareModalOpen(false)}
+          footer={
+            <>
+              <button
+                className="ghost"
+                onClick={() => setShareModalOpen(false)}
+              >
+                キャンセル
+              </button>
+              <button
+                className={CAN_SHARE ? "ghost" : "primary"}
+                disabled={repoGateBlocked}
+                onClick={() => {
+                  downloadJson(
+                    outgoing,
+                    `claude-usage-${name.trim() || "no-name"}.json`,
+                  );
+                  if (!CAN_SHARE) setShareModalOpen(false);
+                }}
+              >
+                JSONをエクスポート
+              </button>
+              {CAN_SHARE && (
+                <button
+                  className="primary"
+                  disabled={
+                    !name.trim() ||
+                    shareState === "sending" ||
+                    repoGateBlocked
+                  }
+                  onClick={share}
+                >
+                  {shareState === "sending"
+                    ? "送信中…"
+                    : repoGateBlocked
+                      ? "リポジトリを選んでください"
+                      : !name.trim()
+                        ? "表示名を入力してください"
+                        : `${name.trim()} として共有する`}
+                </button>
+              )}
+            </>
+          }
+        >
+          <label className="modal-field">
+            <span>表示名</span>
+            <input
+              type="text"
+              placeholder="例: username"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setShareState("idle");
+              }}
+            />
+          </label>
+          <p className="card-desc">
+            {CAN_SHARE
+              ? "下の内容がチームに共有されます。"
+              : "下の内容がJSONに出力されます。"}
+            会話本文・ファイルパス・コードは含まれません。
+            {CAN_SHARE &&
+              " サーバー保存時は過去の共有分と日付単位でマージされ、履歴は蓄積されます。"}
+          </p>
+          {repoSelectBlock()}
+          <div className="modal-summary">
+            スキル {Object.keys(outgoing.skills).length} 種 ・ サブエージェント{" "}
+            {Object.keys(outgoing.subagents).length} 種 ・ コマンド{" "}
+            {Object.keys(outgoing.slashCommands).length} 種
+            {excluded.size > 0 && ` (${excluded.size} 項目を除外中)`}
+          </div>
+          <details className="chart-table" style={{ marginTop: 4 }}>
+            <summary>スキル等の細かい除外を編集</summary>
+            <div style={{ marginTop: 8 }}>{excludeGroups()}</div>
+          </details>
+          <button
+            className="bl-more"
+            onClick={() => setModalShowJson((v) => !v)}
+            style={{ marginTop: 8 }}
+          >
+            {modalShowJson ? "JSONを隠す" : "出力されるJSONを見る"}(
+            {(JSON.stringify(outgoing).length / 1024).toFixed(1)} KB)
+          </button>
+          {modalShowJson && (
+            <pre className="preview-json" style={{ marginTop: 8 }}>
+              {JSON.stringify(outgoing, null, 2)}
+            </pre>
+          )}
+          {shareState === "error" && (
+            <div className="progress" style={{ color: "var(--series-2)" }}>
+              共有に失敗しました: {shareError}
+            </div>
+          )}
+        </Modal>
       )}
     </div>
   );
