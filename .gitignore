@@ -1,0 +1,43 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Playwright
+test-results/
+playwright-report/
+
+# TypeScript incremental build
+*.tsbuildinfo
+
+# Vercel CLI (プロジェクトID等のローカル設定)
+.vercel
+
+# 環境変数ファイルは既定で無視(秘密の置き場所にしない)。
+# .env.cloud はモード切替フラグのみで機密を含まないため例外的にコミットする
+.env
+.env.*
+!.env.cloud
+
+# テストカバレッジ
+coverage/

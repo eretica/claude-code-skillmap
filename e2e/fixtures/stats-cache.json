@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "lastComputedDate": "2026-05-02",
+  "dailyActivity": [
+    { "date": "2026-05-01", "messageCount": 40, "sessionCount": 3, "toolCallCount": 12 },
+    { "date": "2026-05-02", "messageCount": 25, "sessionCount": 2, "toolCallCount": 8 }
+  ]
+}
