@@ -3,7 +3,20 @@ import { daysAgo } from "./dates";
 
 // チーム集計タブで使う期間フィルタと集計ヘルパー
 
-export type Period = "all" | 30 | 7;
+export type Period = "all" | 30 | 7 | "custom";
+
+/** 期間フィルタの日付範囲(両端含む)。nullは全期間 */
+export interface DateRange {
+  from: string | null;
+  to: string | null;
+}
+
+export function inRange(date: string, range: DateRange | null): boolean {
+  if (!range) return true;
+  if (range.from && date < range.from) return false;
+  if (range.to && date > range.to) return false;
+  return true;
+}
 
 export const CATEGORY_LABEL: Record<FeatureCategory, string> = {
   skills: "スキル",
@@ -18,10 +31,13 @@ export const PERIOD_LABEL: [Period, string][] = [
   ["all", "全期間"],
   [30, "直近30日"],
   [7, "直近7日"],
+  ["custom", "期間指定"],
 ];
 
-export function cutoffOf(period: Period): string | null {
-  return period === "all" ? null : daysAgo(period - 1);
+/** プリセット期間を範囲に変換する。customは呼び出し側がfrom/toを組み立てる */
+export function periodRange(period: Period): DateRange | null {
+  if (period === "all" || period === "custom") return null;
+  return { from: daysAgo(period - 1), to: null };
 }
 
 // 期間内の機能利用カウント。dailyFeaturesがない旧形式サマリーは全期間値で代用する。
@@ -29,14 +45,14 @@ export function cutoffOf(period: Period): string | null {
 export function featureCounts(
   m: UsageSummary,
   category: FeatureCategory,
-  cutoff: string | null,
+  range: DateRange | null,
   repo?: string | null,
 ): Record<string, number> {
   if (repo) {
     if (category === "repos") return {};
     const out: Record<string, number> = {};
     for (const [date, repoMap] of Object.entries(m.dailyRepos ?? {})) {
-      if (cutoff && date < cutoff) continue;
+      if (!inRange(date, range)) continue;
       for (const [key, v] of Object.entries(
         repoMap[repo]?.features?.[category] ?? {},
       ))
@@ -44,10 +60,10 @@ export function featureCounts(
     }
     return out;
   }
-  if (!cutoff || !m.dailyFeatures) return m[category] ?? {};
+  if (!range || !m.dailyFeatures) return m[category] ?? {};
   const out: Record<string, number> = {};
   for (const [date, cats] of Object.entries(m.dailyFeatures)) {
-    if (date < cutoff) continue;
+    if (!inRange(date, range)) continue;
     for (const [key, v] of Object.entries(cats[category] ?? {}))
       out[key] = (out[key] ?? 0) + v;
   }
@@ -56,14 +72,14 @@ export function featureCounts(
 
 export function activityIn(
   m: UsageSummary,
-  cutoff: string | null,
+  range: DateRange | null,
   repo?: string | null,
 ): { sessions: number; messages: number } {
   if (repo) {
     let sessions = 0;
     let messages = 0;
     for (const [date, repoMap] of Object.entries(m.dailyRepos ?? {})) {
-      if (cutoff && date < cutoff) continue;
+      if (!inRange(date, range)) continue;
       const b = repoMap[repo];
       if (!b) continue;
       sessions += b.sessions;
@@ -71,13 +87,13 @@ export function activityIn(
     }
     return { sessions, messages };
   }
-  if (!cutoff)
+  if (!range)
     return {
       sessions: m.totals.sessions,
       messages: m.totals.assistantMessages,
     };
   return m.dailyActivity
-    .filter((d) => d.date >= cutoff)
+    .filter((d) => inRange(d.date, range))
     .reduce(
       (acc, d) => ({
         sessions: acc.sessions + d.sessions,
@@ -144,13 +160,13 @@ export function skillRate(m: UsageSummary, repo?: string | null): number {
 /** 期間内に使った機能の種類数(スキル+サブエージェント+MCP) */
 export function diversity(
   m: UsageSummary,
-  cutoff: string | null,
+  range: DateRange | null,
   repo?: string | null,
 ): number {
   return (
-    Object.keys(featureCounts(m, "skills", cutoff, repo)).length +
-    Object.keys(featureCounts(m, "subagents", cutoff, repo)).length +
-    Object.keys(featureCounts(m, "mcpTools", cutoff, repo)).length
+    Object.keys(featureCounts(m, "skills", range, repo)).length +
+    Object.keys(featureCounts(m, "subagents", range, repo)).length +
+    Object.keys(featureCounts(m, "mcpTools", range, repo)).length
   );
 }
 

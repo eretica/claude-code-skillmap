@@ -203,6 +203,17 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
   await cellOfE2eUser.click();
   await expect(cellOfE2eUser).toHaveText("–");
 
+  // 4.5 任意期間(from〜to)指定: 6月に絞るとlegacy分(2026-06-01)だけになる
+  await page.getByRole("button", { name: "期間指定" }).click();
+  await page.locator(".period-range input").first().fill("2026-06-01");
+  await page.locator(".period-range input").nth(1).fill("2026-06-30");
+  await expect
+    .poll(async () => page.evaluate(() => window.location.hash))
+    .toContain("from=2026-06-01");
+  await expect(
+    page.locator(".stat-tile", { hasText: "合計セッション" }),
+  ).toContainText("9"); // e2e-userの6月保存分のみ
+
   // 5. 期間フィルタの切替でタイルが変わる(全期間→直近7日)
   // fixtureの日付は2026-07-28固定のため、テスト実行日によっては期間外になる。
   // ここではUIが切り替わること(エラーなく再計算されること)だけを確認する。

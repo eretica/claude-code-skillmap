@@ -6,18 +6,18 @@ import {
   fetchTeamSummaries,
   removeSummaryItem,
 } from "../lib/api";
-import type { Period } from "../lib/teamStats";
+import type { DateRange, Period } from "../lib/teamStats";
 import {
-  PERIOD_LABEL,
   activityIn,
-  cutoffOf,
   diversity,
   featureCounts,
+  periodRange,
   repoNames,
   skillRate,
   sumOf,
   totalTokens,
 } from "../lib/teamStats";
+import { PeriodFilter } from "./PeriodFilter";
 import { getHashParam, setHashParams } from "../lib/urlState";
 import { Dropzone } from "./Dropzone";
 import { StatTile } from "./StatTile";
@@ -52,8 +52,15 @@ export function TeamView() {
   // 表示状態はURLハッシュから復元し、変更時に書き戻す(リンクで共有できるように)
   const [period, setPeriod] = useState<Period>(() => {
     const p = getHashParam("period");
-    return p === "30" ? 30 : p === "7" ? 7 : "all";
+    if (p === "30") return 30;
+    if (p === "7") return 7;
+    if (p === "custom") return "custom";
+    return "all";
   });
+  const [customFrom, setCustomFrom] = useState(
+    () => getHashParam("from") ?? "",
+  );
+  const [customTo, setCustomTo] = useState(() => getHashParam("to") ?? "");
   const [compareTarget, setCompareTarget] = useState<string>(
     () => getHashParam("target") ?? "",
   );
@@ -67,10 +74,12 @@ export function TeamView() {
     setHashParams({
       category: null, // 旧バージョンのURL互換のため掃除だけする
       period: period === "all" ? null : String(period),
+      from: period === "custom" && customFrom ? customFrom : null,
+      to: period === "custom" && customTo ? customTo : null,
       target: compareTarget || null,
       repo: repoFilter || null,
     });
-  }, [period, compareTarget, repoFilter]);
+  }, [period, customFrom, customTo, compareTarget, repoFilter]);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Map<string, string>>(new Map());
 
@@ -143,10 +152,15 @@ export function TeamView() {
     }
   };
 
-  const cutoff = cutoffOf(period);
+  const range: DateRange | null =
+    period === "custom"
+      ? customFrom || customTo
+        ? { from: customFrom || null, to: customTo || null }
+        : null
+      : periodRange(period);
   const repos = useMemo(() => repoNames(members), [members]);
   const repo = repoFilter && repos.includes(repoFilter) ? repoFilter : null;
-  const legacyNames = cutoff
+  const legacyNames = range
     ? members.filter((m) => !m.dailyFeatures).map((m) => m.name)
     : [];
   const noRepoNames = repo
@@ -164,20 +178,20 @@ export function TeamView() {
         cat,
         new Map(
           members.map(
-            (m) => [m.name, featureCounts(m, cat, cutoff, repo)] as const,
+            (m) => [m.name, featureCounts(m, cat, range, repo)] as const,
           ),
         ),
       );
     }
     return map;
-  }, [members, cutoff, repo]);
+  }, [members, range, repo]);
   const skillCountsOf = countsByCat.get("skills")!;
   const activityOf = useMemo(
     () =>
       new Map(
-        members.map((m) => [m.name, activityIn(m, cutoff, repo)] as const),
+        members.map((m) => [m.name, activityIn(m, range, repo)] as const),
       ),
-    [members, cutoff, repo],
+    [members, range, repo],
   );
   // 日別比較チャート用: リポジトリフィルタ時はdailyReposから日別系列を組み立てる
   const membersForDaily = useMemo(() => {
@@ -236,17 +250,14 @@ export function TeamView() {
       {members.length > 0 && (
         <>
           <div className="controls-row">
-            <div className="tabs" style={{ margin: 0, borderBottom: "none" }}>
-              {PERIOD_LABEL.map(([p, label]) => (
-                <button
-                  key={String(p)}
-                  className={p === period ? "active" : ""}
-                  onClick={() => setPeriod(p)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <PeriodFilter
+              period={period}
+              onPeriodChange={setPeriod}
+              from={customFrom}
+              to={customTo}
+              onFromChange={setCustomFrom}
+              onToChange={setCustomTo}
+            />
             {repos.length > 0 && (
               <select
                 className="member-select"
@@ -335,7 +346,7 @@ export function TeamView() {
               members={members}
               target={target}
               onTargetChange={setCompareTarget}
-              cutoff={cutoff}
+              range={range}
               repo={repo}
             />
           )}
@@ -403,14 +414,14 @@ export function TeamView() {
             <p className="card-desc">
               メンバーごとのアシスタントメッセージ数/日
             </p>
-            <TeamDailyChart members={membersForDaily} cutoff={cutoff} />
+            <TeamDailyChart members={membersForDaily} range={range} />
           </div>
 
-          <div className="card-grid">
+          <div className="card-grid cols-2">
             <div className="card">
               <h2>スキル利用回数<InfoTip text="スキル(手順書をパッケージ化した拡張機能)の呼び出し合計" /></h2>
               <p className="card-desc">
-                {cutoff ? "期間内の" : ""}スキル呼び出し合計
+                {range ? "期間内の" : ""}スキル呼び出し合計
               </p>
               <BarList
                 data={Object.fromEntries(
@@ -423,7 +434,7 @@ export function TeamView() {
               />
             </div>
             <div className="card">
-              <h2>スキル利用セッション率{cutoff ? " (全期間)" : ""}<InfoTip text="スキルを1回以上使ったセッションの割合。素のチャットだけでなく機能を活用できているかの「質」の指標" /></h2>
+              <h2>スキル利用セッション率{range ? " (全期間)" : ""}<InfoTip text="スキルを1回以上使ったセッションの割合。素のチャットだけでなく機能を活用できているかの「質」の指標" /></h2>
               <p className="card-desc">
                 スキルを1回以上使ったセッションの割合(%)。「質」の指標
               </p>
@@ -437,18 +448,18 @@ export function TeamView() {
             <div className="card">
               <h2>活用機能の種類数<InfoTip text="使ったことのあるスキル+サブエージェント+MCPツールの種類数。活用の幅を表します" /></h2>
               <p className="card-desc">
-                {cutoff ? "期間内に" : ""}
+                {range ? "期間内に" : ""}
                 使ったスキル+サブエージェント+MCPの種類数
               </p>
               <BarList
                 data={Object.fromEntries(
-                  members.map((m) => [m.name, diversity(m, cutoff, repo)]),
+                  members.map((m) => [m.name, diversity(m, range, repo)]),
                 )}
                 color="var(--series-3)"
               />
             </div>
             <div className="card">
-              <h2>メンバー別トークン{cutoff ? " (全期間)" : ""}<InfoTip text="トークン=モデルが読み書きした文章量の単位。おおまかな利用量・コストの目安になります" /></h2>
+              <h2>メンバー別トークン{range ? " (全期間)" : ""}<InfoTip text="トークン=モデルが読み書きした文章量の単位。おおまかな利用量・コストの目安になります" /></h2>
               <p className="card-desc">トークン量の比較(モデル横断の合計)</p>
               <TokenChart
                 rows={members.map((m) => ({

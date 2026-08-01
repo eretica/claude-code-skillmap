@@ -14,6 +14,8 @@ import {
 } from "recharts";
 import type { DailyActivity, TokenUsage } from "../lib/types";
 import type { WeeklyTrendPoint } from "../lib/trend";
+import type { DateRange } from "../lib/teamStats";
+import { inRange } from "../lib/teamStats";
 import { InfoTip } from "./InfoTip";
 
 // カテゴリカル色は固定順で割り当てる(参照パレットの検証済み順序)
@@ -396,15 +398,15 @@ const MAX_LINE_MEMBERS = 8;
 
 export function TeamDailyChart({
   members,
-  cutoff,
+  range,
 }: {
   members: { name: string; dailyActivity: DailyActivity[] }[];
-  cutoff: string | null;
+  range: DateRange | null;
 }) {
   const filtered = members.map((m) => ({
     name: m.name,
-    daily: cutoff
-      ? m.dailyActivity.filter((d) => d.date >= cutoff)
+    daily: range
+      ? m.dailyActivity.filter((d) => inRange(d.date, range))
       : m.dailyActivity,
   }));
   // 色はメンバーの並び順(名前順)に固定で割り当て、期間切替で塗り替えない

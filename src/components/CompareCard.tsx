@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { UsageSummary } from "../lib/types";
 import { InfoTip } from "./InfoTip";
+import type { DateRange } from "../lib/teamStats";
 import {
   activityIn,
   diversity,
@@ -71,13 +72,13 @@ export function CompareCard({
   members,
   target,
   onTargetChange,
-  cutoff,
+  range,
   repo = null,
 }: {
   members: UsageSummary[];
   target: UsageSummary;
   onTargetChange: (name: string) => void;
-  cutoff: string | null;
+  range: DateRange | null;
   /** リポジトリフィルタ(指定時は全指標がそのリポジトリ内の値になる) */
   repo?: string | null;
 }) {
@@ -97,26 +98,26 @@ export function CompareCard({
   }[] = [
     {
       label: "セッション数",
-      value: (m) => activityIn(m, cutoff, repo).sessions,
+      value: (m) => activityIn(m, range, repo).sessions,
     },
     {
       label: "メッセージ数",
-      value: (m) => activityIn(m, cutoff, repo).messages,
+      value: (m) => activityIn(m, range, repo).messages,
     },
     {
       label: "スキル利用回数",
-      value: (m) => sumOf(featureCounts(m, "skills", cutoff, repo)),
+      value: (m) => sumOf(featureCounts(m, "skills", range, repo)),
     },
     {
       label: "サブエージェント起動",
-      value: (m) => sumOf(featureCounts(m, "subagents", cutoff, repo)),
+      value: (m) => sumOf(featureCounts(m, "subagents", range, repo)),
     },
     {
       label: "スキル利用セッション率",
       value: (m) => skillRate(m, repo),
       unit: "%",
     },
-    { label: "活用機能の種類", value: (m) => diversity(m, cutoff, repo) },
+    { label: "活用機能の種類", value: (m) => diversity(m, range, repo) },
   ];
 
   return (
@@ -153,7 +154,7 @@ export function CompareCard({
       <p className="card-desc">
         選んだメンバーと{baseLabel}の比較。縦線はチーム中央値。
         {repo ? `リポジトリ「${repo}」内の値です。` : ""}
-        {cutoff ? "件数系は期間内の値です。" : ""}
+        {range ? "件数系は期間内の値です。" : ""}
         スキル利用セッション率のみ全期間の値です。
       </p>
       <div className="compare-grid">

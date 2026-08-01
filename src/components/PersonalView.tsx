@@ -19,15 +19,16 @@ import { mergeSummaries } from "../lib/merge";
 import { isStatsCacheFile, parseStatsCacheFile } from "../lib/statsCache";
 import type { ExcludableCategory } from "../lib/exclude";
 import { exKey } from "../lib/exclude";
-import type { Period } from "../lib/teamStats";
+import type { DateRange, Period } from "../lib/teamStats";
 import {
-  PERIOD_LABEL,
   activityIn,
-  cutoffOf,
   featureCounts,
+  inRange,
+  periodRange,
   skillRateParts,
   sumOf,
 } from "../lib/teamStats";
+import { PeriodFilter } from "./PeriodFilter";
 import { weeklyTrend } from "../lib/trend";
 import { Dropzone } from "./Dropzone";
 import { ShareModal } from "./ShareModal";
@@ -73,6 +74,8 @@ export function PersonalView() {
   });
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [period, setPeriod] = useState<Period>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [savedHandle, setSavedHandle] = useState<unknown | null>(null);
   const [notice, setNotice] = useState<{
     kind: "info" | "error";
@@ -288,19 +291,24 @@ export function PersonalView() {
   };
 
   // 期間フィルタは「表示のみ」に適用する(共有・エクスポートは常に全期間)
-  const cutoff = cutoffOf(period);
+  const range: DateRange | null =
+    period === "custom"
+      ? customFrom || customTo
+        ? { from: customFrom || null, to: customTo || null }
+        : null
+      : periodRange(period);
   const view = useMemo(() => {
     if (!summary) return null;
-    const skills = featureCounts(summary, "skills", cutoff);
-    const subagents = featureCounts(summary, "subagents", cutoff);
-    const mcpTools = featureCounts(summary, "mcpTools", cutoff);
-    const activity = activityIn(summary, cutoff);
-    const daily = cutoff
-      ? summary.dailyActivity.filter((d) => d.date >= cutoff)
+    const skills = featureCounts(summary, "skills", range);
+    const subagents = featureCounts(summary, "subagents", range);
+    const mcpTools = featureCounts(summary, "mcpTools", range);
+    const activity = activityIn(summary, range);
+    const daily = range
+      ? summary.dailyActivity.filter((d) => inRange(d.date, range))
       : summary.dailyActivity;
     // スキル利用セッション率(スキル情報を持つ日だけで計算。バックフィル日で希釈させない)
     let { num: skillRateNum, den: skillRateDen } = skillRateParts(summary);
-    if (cutoff) {
+    if (range) {
       const days = daily.filter((d) => typeof d.skillSessions === "number");
       skillRateDen = days.reduce((s, d) => s + d.sessions, 0);
       skillRateNum = days.reduce((s, d) => s + (d.skillSessions ?? 0), 0);
@@ -309,9 +317,9 @@ export function PersonalView() {
       skills,
       subagents,
       mcpTools,
-      slashCommands: featureCounts(summary, "slashCommands", cutoff),
-      plugins: featureCounts(summary, "plugins", cutoff),
-      repos: featureCounts(summary, "repos", cutoff),
+      slashCommands: featureCounts(summary, "slashCommands", range),
+      plugins: featureCounts(summary, "plugins", range),
+      repos: featureCounts(summary, "repos", range),
       activity,
       daily,
       skillRate:
@@ -325,14 +333,14 @@ export function PersonalView() {
         Object.keys(subagents).length +
         Object.keys(mcpTools).length,
     };
-  }, [summary, cutoff]);
+  }, [summary, range]);
 
   const trend = useMemo(
     () => (summary ? weeklyTrend(summary) : []),
     [summary],
   );
 
-  const allTime = cutoff ? " (全期間)" : "";
+  const allTime = range ? " (全期間)" : "";
 
   // カテゴリ内の全項目を一括で含める/除外する
   const setCategoryExcluded = (
@@ -466,18 +474,15 @@ export function PersonalView() {
           )}
 
           <div className="controls-row">
-            <div className="tabs" style={{ margin: 0, borderBottom: "none" }}>
-              {PERIOD_LABEL.map(([p, label]) => (
-                <button
-                  key={String(p)}
-                  className={p === period ? "active" : ""}
-                  onClick={() => setPeriod(p)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {cutoff && (
+            <PeriodFilter
+              period={period}
+              onPeriodChange={setPeriod}
+              from={customFrom}
+              to={customTo}
+              onFromChange={setCustomFrom}
+              onToChange={setCustomTo}
+            />
+            {range && (
               <span className="empty-note">
                 表示のみに適用されます(共有・エクスポートは常に全期間)
               </span>
@@ -490,8 +495,8 @@ export function PersonalView() {
               info="Claude Codeの起動から終了までを1セッションと数えます。バックフィルや再共有で蓄積したデータでは日別合計になるため、日をまたぐセッションが重複計上されることがあります"
               value={view.activity.sessions}
               sub={
-                cutoff
-                  ? `${cutoff} 以降`
+                range
+                  ? `${range.from ?? "…"} 〜 ${range.to ?? "…"}`
                   : `${summary.period.from ?? "?"} 〜 ${summary.period.to ?? "?"}`
               }
             />
@@ -512,7 +517,7 @@ export function PersonalView() {
               info="調査・レビューなどを子エージェントに委任した回数。使いこなすと作業を並列化できます"
               value={sumOf(view.subagents)}
               sub={
-                cutoff ? undefined : `${summary.sessionsWithSubagent} セッションで利用`
+                range ? undefined : `${summary.sessionsWithSubagent} セッションで利用`
               }
             />
             <StatTile
