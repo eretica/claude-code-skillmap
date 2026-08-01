@@ -31,6 +31,12 @@ import {
 } from "../lib/teamStats";
 import { costInRange, formatUsd, loadRates, saveRates } from "../lib/pricing";
 import type { ModelRate } from "../lib/pricing";
+import type {
+  SessionDetail,
+  SessionIndex,
+  SessionMeta,
+} from "../lib/sessionDetail";
+import { buildSessionIndex, parseSessionDetail } from "../lib/sessionDetail";
 import { PeriodFilter } from "./PeriodFilter";
 import { weeklyTrend } from "../lib/trend";
 import { Dropzone } from "./Dropzone";
@@ -40,6 +46,9 @@ import { StatTile } from "./StatTile";
 import { BarList } from "./BarList";
 import { RatesEditor } from "./RatesEditor";
 import { ToolErrorTable } from "./ToolErrorTable";
+import { Modal } from "./Modal";
+import { SessionList } from "./SessionList";
+import { SessionTimeline } from "./SessionTimeline";
 import {
   DailyCharts,
   GrowthChart,
@@ -101,6 +110,26 @@ export function PersonalView() {
   const updateRates = (r: Record<string, ModelRate>) => {
     setRates(r);
     saveRates(r);
+  };
+  // セッション詳細(ローカル閲覧のみ。共有・エクスポートとは別系統)
+  const [sessionIndex, setSessionIndex] = useState<SessionIndex | null>(null);
+  const [openedSession, setOpenedSession] = useState<{
+    meta: SessionMeta;
+    detail: SessionDetail;
+  } | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const openSession = async (meta: SessionMeta) => {
+    setDetailLoading(true);
+    try {
+      const detail = await parseSessionDetail(
+        meta,
+        sessionIndex?.subagentFiles.get(meta.sessionId) ?? [],
+      );
+      setOpenedSession({ meta, detail });
+    } finally {
+      setDetailLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -198,6 +227,9 @@ export function PersonalView() {
         }
       }
       setSummary(result);
+      // セッション詳細用のインデックスは裏で作る(失敗しても解析自体は成立)
+      setSessionIndex(null);
+      buildSessionIndex(jsonl).then(setSessionIndex, () => {});
     } finally {
       setParsing(false);
     }
@@ -719,7 +751,37 @@ export function PersonalView() {
             <p className="card-desc">Read/Edit/Bash などツール名別の呼び出し回数</p>
             <BarList data={summary.tools} limit={15} />
           </div>
+
+          <div className="card">
+            <h2>セッション詳細<InfoTip text="セッションを選ぶと、プロンプト→スキル読込→エージェント起動→ツール実行の流れをOpenTelemetryのトレースビュー風に表示します。この画面はこのブラウザでの閲覧専用で、チーム共有・エクスポートには一切含まれません" /></h2>
+            <p className="card-desc">
+              クリックでそのセッションのタイムラインを表示(ローカル閲覧のみ・共有されません)
+            </p>
+            {sessionIndex ? (
+              <SessionList
+                sessions={sessionIndex.sessions}
+                onOpen={(m) => void openSession(m)}
+              />
+            ) : (
+              <div className="empty-note">セッション一覧を作成中…</div>
+            )}
+            {detailLoading && (
+              <div className="progress">タイムラインを読み込み中…</div>
+            )}
+          </div>
         </>
+      )}
+
+      {openedSession && (
+        <Modal
+          title={
+            openedSession.meta.title ??
+            `セッション ${openedSession.meta.sessionId.slice(0, 8)}…`
+          }
+          onClose={() => setOpenedSession(null)}
+        >
+          <SessionTimeline detail={openedSession.detail} />
+        </Modal>
       )}
 
       {shareModalOpen && summary && outgoing && (

@@ -473,6 +473,129 @@ details.chart-table thead th {
   font-weight: 500;
 }
 
+/* セッション詳細: OTel風ウォーターフォールタイムライン */
+.session-table tbody tr {
+  cursor: pointer;
+}
+
+.session-table tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.session-table .session-title {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.tl-body {
+  position: relative;
+  margin-top: 8px;
+}
+
+.tl-row {
+  display: grid;
+  grid-template-columns: 64px 260px 1fr;
+  align-items: center;
+  min-height: 24px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.tl-row.expandable {
+  cursor: pointer;
+}
+
+.tl-row.expandable:hover {
+  background: var(--surface-2);
+}
+
+.tl-time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.tl-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+.tl-caret {
+  color: var(--text-muted);
+  font-size: 9px;
+  width: 10px;
+  flex: none;
+}
+
+.tl-detail {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.tl-tool {
+  color: var(--text-secondary);
+}
+
+.tl-muted {
+  color: var(--text-secondary);
+}
+
+.tl-track {
+  position: relative;
+  height: 24px;
+}
+
+.tl-bar {
+  position: absolute;
+  top: 6px;
+  height: 12px;
+  border-radius: 4px;
+  min-width: 3px;
+}
+
+.tl-bar.thin {
+  top: 9px;
+  height: 6px;
+  border-radius: 3px;
+  opacity: 0.7;
+}
+
+.tl-bar-label {
+  position: absolute;
+  top: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-dot {
+  position: absolute;
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translateX(-4px);
+  box-shadow: 0 0 0 2px var(--surface-1);
+}
+
+.tl-gap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--axis);
+  opacity: 0.3;
+  z-index: 0;
+}
+
 .progress {
   font-size: 13px;
   color: var(--text-secondary);

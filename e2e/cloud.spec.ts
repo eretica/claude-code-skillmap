@@ -85,7 +85,7 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
 
   // 新指標(個人): 委任度タイル・ツール失敗率・概算コスト
   await expect(page.locator(".stat-tile", { hasText: "委任度" })).toContainText(
-    "20%", // サイドチェーン1 / アシスタント5件
+    "38%", // サイドチェーン3(本体1+サブエージェント2) / アシスタント8件
   );
   await expect(
     page
@@ -95,6 +95,23 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
   await expect(
     page.locator(".card h2").filter({ hasText: /^概算コスト/ }),
   ).toBeVisible();
+
+  // セッション詳細: 一覧からタイムラインを開く(OTel風・ローカル閲覧のみ)
+  const sessionCard = page.locator(".card", { hasText: "セッション詳細" });
+  await expect(
+    sessionCard.locator("tbody tr", { hasText: "E2Eデモセッション" }),
+  ).toBeVisible();
+  await sessionCard.locator("tbody tr").first().click();
+  const tl = page.locator(".modal");
+  await expect(tl).toBeVisible();
+  // スキル帰属スパン + サブエージェントスパン(サブエージェント自身の実時間で描画)
+  await expect(
+    tl.locator(".tl-row", { hasText: "demo-skill-a" }).first(),
+  ).toBeVisible();
+  const agentRow = tl.locator(".tl-row", { hasText: "explore" }).first();
+  await expect(agentRow).toContainText("msg");
+  await tl.locator(".modal-close").click();
+  await expect(page.locator(".modal")).toHaveCount(0);
 
   // stats-cacheバックフィル: トランスクリプトに無い過去日(2026-05-01)が取り込まれる
   await page
