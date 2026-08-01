@@ -83,13 +83,17 @@ export function TeamHeatmap({
         users: members.filter((m) => (counts.get(m.name)![feature] ?? 0) > 0)
           .length,
       }));
-    const sortCounts = sortBy !== "total" ? counts.get(sortBy) : undefined;
-    rows.sort((a, b) =>
-      sortCounts
-        ? (sortCounts[b.feature] ?? 0) - (sortCounts[a.feature] ?? 0) ||
+    const sortCounts =
+      sortBy !== "total" && sortBy !== "users" ? counts.get(sortBy) : undefined;
+    rows.sort((a, b) => {
+      if (sortCounts)
+        return (
+          (sortCounts[b.feature] ?? 0) - (sortCounts[a.feature] ?? 0) ||
           b.total - a.total
-        : b.total - a.total,
-    );
+        );
+      if (sortBy === "users") return b.users - a.users || b.total - a.total;
+      return b.total - a.total;
+    });
     return {
       totals: rows,
       maxCell: Math.max(
@@ -116,7 +120,14 @@ export function TeamHeatmap({
           <table className="heatmap">
             <thead>
               <tr>
-                <th>{CATEGORY_LABEL[category]}</th>
+                <th
+                  className="sortable"
+                  title="クリックで合計利用回数の多い順に並べ替え"
+                  onClick={() => setSortBy("total")}
+                >
+                  {CATEGORY_LABEL[category]}
+                  {sortBy === "total" && " ▼"}
+                </th>
                 {members.map((m) => (
                   <th
                     className={`col sortable${m.name === highlightName ? " me-col" : ""}`}
@@ -130,7 +141,14 @@ export function TeamHeatmap({
                     {sortBy === m.name && " ▼"}
                   </th>
                 ))}
-                <th className="col">利用人数</th>
+                <th
+                  className="col sortable"
+                  title="クリックで利用人数の多い順に並べ替え"
+                  onClick={() => setSortBy("users")}
+                >
+                  利用人数
+                  {sortBy === "users" && " ▼"}
+                </th>
               </tr>
             </thead>
             <tbody>
