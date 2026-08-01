@@ -541,6 +541,15 @@ button.bl-more:hover {
   margin: 0;
 }
 
+/* リポジトリはopt-in選択なので枠で区別する */
+.repo-select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--page);
+}
+
 .viz-tooltip {
   background: var(--surface-1);
   border: 1px solid var(--border);

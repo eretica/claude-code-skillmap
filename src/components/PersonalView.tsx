@@ -35,6 +35,7 @@ import { DailyCharts, GrowthChart, TokenChart } from "./ChartsLazy";
 
 const NAME_KEY = "claude-graph:name";
 const EXCLUDED_KEY = "claude-graph:excluded";
+const INCLUDED_REPOS_KEY = "claude-graph:includedRepos";
 
 export function PersonalView() {
   // 表示名は次回訪問時のために記憶しておく
@@ -56,6 +57,18 @@ export function PersonalView() {
       return new Set();
     }
   });
+  // リポジトリはopt-in(誤って機密リポジトリを含めないよう、明示的に選んだものだけ共有)。
+  // 選択は記憶するが、新しく現れたリポジトリは安全側でOFFのまま。
+  const [includedRepos, setIncludedRepos] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(
+        JSON.parse(localStorage.getItem(INCLUDED_REPOS_KEY) ?? "[]"),
+      );
+    } catch {
+      return new Set();
+    }
+  });
+  const [selectPanelOpen, setSelectPanelOpen] = useState(false);
   const [period, setPeriod] = useState<Period>("all");
   const [showPreview, setShowPreview] = useState(false);
   const [savedHandle, setSavedHandle] = useState<unknown | null>(null);
@@ -76,6 +89,13 @@ export function PersonalView() {
   useEffect(() => {
     localStorage.setItem(EXCLUDED_KEY, JSON.stringify([...excluded]));
   }, [excluded]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      INCLUDED_REPOS_KEY,
+      JSON.stringify([...includedRepos]),
+    );
+  }, [includedRepos]);
 
   // 前回選んだフォルダのハンドルを復元(ワンクリック再解析用)
   useEffect(() => {
@@ -203,13 +223,49 @@ export function PersonalView() {
     setShareState("idle");
   };
 
-  // 共有・エクスポートには除外設定を適用したサマリーを使う
+  const allRepos = summary ? Object.keys(summary.repos ?? {}) : [];
+
+  // 除外設定 + リポジトリのopt-in(選ばれていないリポジトリは除外扱い)を合成する。
+  // マージ後の古いリポジトリも取りこぼさないよう、対象サマリーのrepos全体から算出する。
+  const buildExcluded = (s: UsageSummary): Set<string> => {
+    const eff = new Set(excluded);
+    for (const repo of Object.keys(s.repos ?? {})) {
+      if (!includedRepos.has(repo)) eff.add(exKey("repos", repo));
+    }
+    return eff;
+  };
   const outgoing = summary
-    ? applyExclusions({ ...summary, name: name.trim() || "no-name" }, excluded)
+    ? applyExclusions(
+        { ...summary, name: name.trim() || "no-name" },
+        buildExcluded(summary),
+      )
     : null;
+
+  const toggleRepo = (repo: string) => {
+    setIncludedRepos((prev) => {
+      const next = new Set(prev);
+      if (next.has(repo)) next.delete(repo);
+      else next.add(repo);
+      return next;
+    });
+    setShareState("idle");
+  };
+
+  const selectedRepoCount = allRepos.filter((r) =>
+    includedRepos.has(r),
+  ).length;
 
   const share = async () => {
     if (!outgoing || !summary || !name.trim()) return;
+    // 誤爆防止: リポジトリがあるのに1つも選んでいなければ、選択を促して中断
+    if (allRepos.length > 0 && selectedRepoCount === 0) {
+      setSelectPanelOpen(true);
+      setShareError(
+        "共有するリポジトリを1つ以上選んでください(機密リポジトリを含めないための確認です)。",
+      );
+      setShareState("error");
+      return;
+    }
     setShareState("sending");
     try {
       // 蓄積: サーバーの保存分と日付マージしてから送る。
@@ -217,16 +273,15 @@ export function PersonalView() {
       // 取得に失敗した場合は、上書きで履歴を失わないよう中断する。
       const rows = await fetchTeamSummaries();
       const mine = rows.find((r) => r.name === outgoing.name);
-      const payload = mine
-        ? applyExclusions(
-            mergeSummaries(mine.data, {
-              ...summary,
-              name: outgoing.name,
-              exportedAt: outgoing.exportedAt,
-            }),
-            excluded,
-          )
-        : outgoing;
+      let payload = outgoing;
+      if (mine) {
+        const merged = mergeSummaries(mine.data, {
+          ...summary,
+          name: outgoing.name,
+          exportedAt: outgoing.exportedAt,
+        });
+        payload = applyExclusions(merged, buildExcluded(merged));
+      }
       await shareSummary(payload);
       setShareState("done");
     } catch (e) {
@@ -341,41 +396,101 @@ export function PersonalView() {
 
       {summary && outgoing && view && (
         <>
-          <details className="card exclude-panel">
+          <details
+            className="card exclude-panel"
+            open={selectPanelOpen}
+            onToggle={(e) => setSelectPanelOpen(e.currentTarget.open)}
+          >
             <summary>
-              共有・エクスポートから除外する項目を選ぶ
+              {CAN_SHARE ? "共有する内容を選ぶ" : "出力する内容を選ぶ"}
+              {allRepos.length > 0 && (
+                <span
+                  className="exclude-count"
+                  style={{
+                    color:
+                      selectedRepoCount === 0
+                        ? "var(--series-2)"
+                        : "var(--good-text)",
+                  }}
+                >
+                  リポジトリ {selectedRepoCount}/{allRepos.length} 選択
+                </span>
+              )}
               {excluded.size > 0 && (
                 <span className="exclude-count">{excluded.size} 項目を除外中</span>
               )}
             </summary>
-            <p className="card-desc">
-              チェックを外した項目は共有・エクスポートに含まれません(下のダッシュボード表示には影響しません)。
-              設定はこのブラウザに記憶され、再解析・再共有後も維持されます。
-            </p>
-            {EXCLUDABLE_CATEGORIES.map(([category, label]) => {
-              const items = Object.keys(summary[category] ?? {});
-              if (items.length === 0) return null;
-              return (
-                <div key={category} className="exclude-group">
-                  <div className="exclude-group-label">{label}</div>
-                  <div className="exclude-items">
-                    {items.map((item) => {
-                      const key = exKey(category, item);
-                      return (
-                        <label key={item} className="exclude-item">
-                          <input
-                            type="checkbox"
-                            checked={!excluded.has(key)}
-                            onChange={() => toggleExcluded(key)}
-                          />
-                          {item}
-                        </label>
-                      );
-                    })}
-                  </div>
+
+            {allRepos.length > 0 && (
+              <div className="exclude-group repo-select">
+                <div className="exclude-group-label">
+                  含めるリポジトリ(既定: なし)
+                  <button
+                    className="bl-more"
+                    style={{ marginLeft: 10 }}
+                    onClick={() => setIncludedRepos(new Set(allRepos))}
+                  >
+                    すべて選択
+                  </button>
+                  <button
+                    className="bl-more"
+                    style={{ marginLeft: 8 }}
+                    onClick={() => setIncludedRepos(new Set())}
+                  >
+                    すべて解除
+                  </button>
                 </div>
-              );
-            })}
+                <p className="card-desc" style={{ margin: "2px 0 6px" }}>
+                  リポジトリは<strong>選んだものだけ</strong>
+                  {CAN_SHARE ? "共有" : "出力"}
+                  されます(機密リポジトリの誤爆防止)。名前はディレクトリ名のみです。
+                </p>
+                <div className="exclude-items">
+                  {allRepos.map((repo) => (
+                    <label key={repo} className="exclude-item">
+                      <input
+                        type="checkbox"
+                        checked={includedRepos.has(repo)}
+                        onChange={() => toggleRepo(repo)}
+                      />
+                      {repo}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="card-desc">
+              下のスキル等はチェックを外した項目が
+              {CAN_SHARE ? "共有" : "出力"}
+              から除外されます(ダッシュボード表示には影響しません)。設定はこのブラウザに記憶されます。
+            </p>
+            {EXCLUDABLE_CATEGORIES.filter(([c]) => c !== "repos").map(
+              ([category, label]) => {
+                const items = Object.keys(summary[category] ?? {});
+                if (items.length === 0) return null;
+                return (
+                  <div key={category} className="exclude-group">
+                    <div className="exclude-group-label">{label}</div>
+                    <div className="exclude-items">
+                      {items.map((item) => {
+                        const key = exKey(category, item);
+                        return (
+                          <label key={item} className="exclude-item">
+                            <input
+                              type="checkbox"
+                              checked={!excluded.has(key)}
+                              onChange={() => toggleExcluded(key)}
+                            />
+                            {item}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              },
+            )}
           </details>
 
           <div className="controls-row">
@@ -420,7 +535,9 @@ export function PersonalView() {
                   : "出力内容を確認"}
             </button>
             <span className="empty-note">
-              {excluded.size > 0 && `${excluded.size} 項目を除外して`}
+              {allRepos.length > 0 &&
+                `リポジトリ ${selectedRepoCount}/${allRepos.length} 選択・`}
+              {excluded.size > 0 && `${excluded.size} 項目を除外・`}
               集計値のみが{CAN_SHARE ? "共有" : "出力"}されます(会話・パス・コードは含まれません)
             </span>
           </div>

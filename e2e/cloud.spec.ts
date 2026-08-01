@@ -79,12 +79,23 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
     .first()
     .fill("e2e-user");
 
+  // リポジトリはopt-in: 1つも選ばずに共有しようとするとエラーで止まる
+  await page.getByRole("button", { name: "チームに共有" }).click();
+  await expect(page.getByText(/リポジトリを1つ以上選んで/)).toBeVisible();
+
+  // demo-repo(fixtureのcwd末尾)を選択して再度共有
+  await page
+    .locator(".repo-select .exclude-item", { hasText: "demo-repo" })
+    .locator("input")
+    .check();
+
   // 送信内容プレビュー: 除外した項目が実際に含まれていないことを現物で確認できる
   await page.getByRole("button", { name: "送信内容を確認" }).click();
   const preview = page.locator(".preview-json");
   await expect(preview).toContainText('"schemaVersion": 1');
   await expect(preview).toContainText("demo-skill-a");
   await expect(preview).not.toContainText("demo-skill-b");
+  await expect(preview).toContainText("demo-repo");
   await page.getByRole("button", { name: "内容を閉じる" }).click();
 
   await page.getByRole("button", { name: "チームに共有" }).click();
