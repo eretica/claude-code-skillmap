@@ -18,6 +18,8 @@ export interface DailyActivity {
   skillSessions?: number;
   /** その日のユーザープロンプト数。旧サマリーには存在しない */
   userPrompts?: number;
+  /** その日のサイドチェーン(サブエージェント側)アシスタントメッセージ数。旧サマリーには存在しない */
+  sidechainMessages?: number;
 }
 
 /**
@@ -92,6 +94,14 @@ export interface UsageSummary {
   permissionModes?: Record<string, number>;
   /** セッション長(アシスタントメッセージ数)の分布バケット。旧サマリーには存在しない */
   sessionLengthBuckets?: Record<string, number>;
+  /** サイドチェーン(サブエージェントに委任した側)のアシスタントメッセージ総数。旧サマリーには存在しない */
+  sidechainMessages?: number;
+  /** ツール名 -> 失敗(tool_resultのis_error)回数。エラー本文は含めない。旧サマリーには存在しない */
+  toolErrors?: Record<string, number>;
+  /** 推論エフォート(high等) -> アシスタントメッセージ数。旧サマリーには存在しない */
+  efforts?: Record<string, number>;
+  /** セッション実時間(最初と最後の記録の差)の分布バケット。旧サマリーには存在しない */
+  sessionDurationBuckets?: Record<string, number>;
   /** サーバーサイドWeb検索の実行回数。旧サマリーには存在しない */
   webSearchRequests?: number;
   /** サーバーサイドWebフェッチの実行回数。旧サマリーには存在しない */

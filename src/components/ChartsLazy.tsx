@@ -17,6 +17,12 @@ const Charts = {
   GrowthChart: lazy(() =>
     import("./charts").then((m) => ({ default: m.GrowthChart })),
   ),
+  TokenTrendChart: lazy(() =>
+    import("./charts").then((m) => ({ default: m.TokenTrendChart })),
+  ),
+  TeamModelChart: lazy(() =>
+    import("./charts").then((m) => ({ default: m.TeamModelChart })),
+  ),
 };
 
 const fallback = <div className="empty-note">チャートを読み込み中…</div>;
@@ -53,6 +59,26 @@ export function GrowthChart(props: ComponentProps<typeof Charts.GrowthChart>) {
   return (
     <Suspense fallback={fallback}>
       <Charts.GrowthChart {...props} />
+    </Suspense>
+  );
+}
+
+export function TokenTrendChart(
+  props: ComponentProps<typeof Charts.TokenTrendChart>,
+) {
+  return (
+    <Suspense fallback={fallback}>
+      <Charts.TokenTrendChart {...props} />
+    </Suspense>
+  );
+}
+
+export function TeamModelChart(
+  props: ComponentProps<typeof Charts.TeamModelChart>,
+) {
+  return (
+    <Suspense fallback={fallback}>
+      <Charts.TeamModelChart {...props} />
     </Suspense>
   );
 }

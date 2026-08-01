@@ -86,6 +86,7 @@ describe("sanitizeSummary", () => {
         messages: 2,
         toolCalls: 2,
         userPrompts: 0,
+        sidechainMessages: 0,
       },
     ]);
     expect(out.skills).toEqual({ ok: 1 });

@@ -9,6 +9,7 @@ import {
 import type { DateRange, Period } from "../lib/teamStats";
 import {
   activityIn,
+  delegationRate,
   diversity,
   featureCounts,
   periodRange,
@@ -17,6 +18,8 @@ import {
   sumOf,
   totalTokens,
 } from "../lib/teamStats";
+import { costInRange, formatUsd, loadRates, saveRates } from "../lib/pricing";
+import type { ModelRate } from "../lib/pricing";
 import { PeriodFilter } from "./PeriodFilter";
 import { getHashParam, setHashParams } from "../lib/urlState";
 import { Dropzone } from "./Dropzone";
@@ -27,7 +30,8 @@ import { CompareCard } from "./CompareCard";
 import { RecommendCard } from "./RecommendCard";
 import { AskWhoCard } from "./AskWhoCard";
 import { TeamHeatmap } from "./TeamHeatmap";
-import { TeamDailyChart, TokenChart } from "./ChartsLazy";
+import { RatesEditor } from "./RatesEditor";
+import { TeamDailyChart, TeamModelChart, TokenChart } from "./ChartsLazy";
 
 // 集計はtypes.tsの共有定数を使う(表示順が異なるだけの別リストを作らない)
 import { FEATURE_CATEGORIES } from "../lib/types";
@@ -82,6 +86,12 @@ export function TeamView() {
   }, [period, customFrom, customTo, compareTarget, repoFilter]);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Map<string, string>>(new Map());
+  // 概算コストの単価(このブラウザにのみ保存。共有されない)
+  const [rates, setRates] = useState<Record<string, ModelRate>>(loadRates);
+  const updateRates = (r: Record<string, ModelRate>) => {
+    setRates(r);
+    saveRates(r);
+  };
 
   const loadFromServer = useCallback(async () => {
     setLoading(true);
@@ -468,6 +478,57 @@ export function TeamView() {
                 }))}
               />
             </div>
+            <div className="card">
+              <h2>委任度<InfoTip text="全アシスタントメッセージのうち、サブエージェント(サイドチェーン)側で処理された割合。高いほど作業を子エージェントに任せて並列化できています。古い共有分にはデータがない場合があります" /></h2>
+              <p className="card-desc">
+                サブエージェント側で処理されたメッセージの割合(%)
+              </p>
+              <BarList
+                data={Object.fromEntries(
+                  members
+                    .map((m) => [m.name, delegationRate(m, range)] as const)
+                    .filter((e): e is [string, number] => e[1] !== null),
+                )}
+                unit="%"
+                color="var(--series-4)"
+              />
+            </div>
+            <div className="card">
+              <h2>メンバー別 概算コスト{range ? "" : " (全期間)"}<InfoTip text="トークン使用量に公式API単価を掛けたAPI従量課金換算の概算。サブスクリプション利用時の実際の支払額ではありません。単価は編集でき、このブラウザにのみ保存されます。旧形式の共有分は期間指定では0になります" /></h2>
+              <p className="card-desc">
+                API従量課金に換算した金額(実際の請求額ではありません)
+              </p>
+              <BarList
+                data={Object.fromEntries(
+                  members.map((m) => [
+                    m.name,
+                    costInRange(m, range, rates).usd,
+                  ]),
+                )}
+                color="var(--series-2)"
+                format={formatUsd}
+              />
+              <RatesEditor
+                rates={rates}
+                usedModels={[
+                  ...new Set(
+                    members.flatMap((m) => Object.keys(m.tokensByModel)),
+                  ),
+                ]}
+                onChange={updateRates}
+              />
+            </div>
+          </div>
+
+          <div className="card">
+            <h2>モデル × メンバー{range ? " (全期間)" : ""}<InfoTip text="誰がどのモデルをどれだけ使っているかの比較。値は入出力+キャッシュを含む合計トークンです" /></h2>
+            <p className="card-desc">メンバーごとの利用モデル内訳(トークン)</p>
+            <TeamModelChart
+              rows={members.map((m) => ({
+                name: m.name,
+                tokensByModel: m.tokensByModel,
+              }))}
+            />
           </div>
         </>
       )}

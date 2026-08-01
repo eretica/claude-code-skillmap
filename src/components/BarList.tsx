@@ -7,6 +7,7 @@ export function BarList({
   color = "var(--series-1)",
   keepOrder = false,
   unit = "",
+  format,
 }: {
   data: Record<string, number>;
   limit?: number;
@@ -15,6 +16,8 @@ export function BarList({
   keepOrder?: boolean;
   /** 値に付ける単位(例: "%")。単位なしの生数値と誤読させないため */
   unit?: string;
+  /** 値の表示フォーマット(例: 金額)。指定時はunitより優先 */
+  format?: (n: number) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const all = keepOrder
@@ -43,8 +46,7 @@ export function BarList({
               />
             </div>
             <div className="bl-value">
-              {count.toLocaleString()}
-              {unit}
+              {format ? format(count) : `${count.toLocaleString()}${unit}`}
             </div>
           </div>
         ))}

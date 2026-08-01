@@ -18,6 +18,7 @@ interface Accum {
       messages: number;
       toolCalls: number;
       userPrompts: number;
+      sidechainMessages: number;
     }
   >;
   dailyTokens: Map<string, Map<string, TokenUsage>>;
@@ -35,6 +36,13 @@ interface Accum {
   modeSessions: Map<string, Set<string>>;
   permissionModeSessions: Map<string, Set<string>>;
   sessionMessages: Map<string, number>;
+  // セッションごとの最初/最後のタイムスタンプ(ms)。実時間バケットの算出に使う
+  sessionTimes: Map<string, { min: number; max: number }>;
+  // tool_useのid -> 正規化済みツール名。user行のtool_result(is_error)を名前に紐付ける
+  toolUseNames: Map<string, string>;
+  toolErrors: Map<string, number>;
+  efforts: Map<string, number>;
+  sidechainMessages: number;
   webSearchRequests: number;
   webFetchRequests: number;
   assistantMessages: number;
@@ -166,6 +174,11 @@ function newAccum(): Accum {
     modeSessions: new Map(),
     permissionModeSessions: new Map(),
     sessionMessages: new Map(),
+    sessionTimes: new Map(),
+    toolUseNames: new Map(),
+    toolErrors: new Map(),
+    efforts: new Map(),
+    sidechainMessages: 0,
     webSearchRequests: 0,
     webFetchRequests: 0,
     assistantMessages: 0,
@@ -193,12 +206,31 @@ function dailyEntry(acc: Accum, date: string) {
       messages: 0,
       toolCalls: 0,
       userPrompts: 0,
+      sidechainMessages: 0,
     };
     acc.daily.set(date, e);
   }
   if (acc.minDate === null || date < acc.minDate) acc.minDate = date;
   if (acc.maxDate === null || date > acc.maxDate) acc.maxDate = date;
   return e;
+}
+
+// セッション実時間: 行のタイムスタンプでそのセッションの最初/最後を更新する
+function trackSessionTime(
+  acc: Accum,
+  rec: { sessionId?: unknown; timestamp?: unknown },
+) {
+  if (typeof rec.sessionId !== "string" || typeof rec.timestamp !== "string")
+    return;
+  const t = new Date(rec.timestamp).getTime();
+  if (Number.isNaN(t)) return;
+  const cur = acc.sessionTimes.get(rec.sessionId);
+  if (!cur) {
+    acc.sessionTimes.set(rec.sessionId, { min: t, max: t });
+  } else {
+    if (t < cur.min) cur.min = t;
+    if (t > cur.max) cur.max = t;
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -224,9 +256,16 @@ function handleAssistant(acc: Accum, rec: any) {
       bumpSession(acc.entrypointSessions, rec.entrypoint, sessionId);
   }
   acc.assistantMessages++;
+  // サブエージェント側の行(subagents/配下のファイル)にはisSidechain:trueが付く。
+  // 委任度 = sidechainMessages / assistantMessages
+  const isSidechain = rec.isSidechain === true;
+  if (isSidechain) acc.sidechainMessages++;
+  if (typeof rec.effort === "string" && rec.effort.length > 0)
+    bump(acc.efforts, rec.effort);
   if (date) {
     const e = dailyEntry(acc, date);
     e.messages++;
+    if (isSidechain) e.sidechainMessages++;
     if (sessionId) e.sessions.add(sessionId);
   }
 
@@ -290,9 +329,12 @@ function handleAssistant(acc: Accum, rec: any) {
       const mcpKey = `${parts[1] ?? "?"}/${parts.slice(2).join("__")}`;
       bump(acc.mcpTools, mcpKey);
       bumpDaily(acc, date, "mcpTools", mcpKey, repo);
+      if (typeof item.id === "string") acc.toolUseNames.set(item.id, mcpKey);
       continue;
     }
     bump(acc.tools, name);
+    // 後続のuser行のtool_result(is_error)を失敗としてツール名に紐付けるためのマップ
+    if (typeof item.id === "string") acc.toolUseNames.set(item.id, name);
 
     if (name === "Skill") {
       const skill = item.input?.skill;
@@ -339,6 +381,16 @@ function handleUser(acc: Accum, rec: any) {
     for (const item of content) {
       if (item && item.type === "text" && typeof item.text === "string")
         texts.push(item.text);
+      // ツール失敗率: is_errorのtool_resultをツール名に紐付けて数える(本文は読まない)
+      if (
+        item &&
+        item.type === "tool_result" &&
+        item.is_error === true &&
+        typeof item.tool_use_id === "string"
+      ) {
+        const toolName = acc.toolUseNames.get(item.tool_use_id);
+        if (toolName) bump(acc.toolErrors, toolName);
+      }
     }
   }
   if (texts.length === 0) return;
@@ -387,8 +439,13 @@ async function parseFile(
       try {
         const rec = JSON.parse(line);
         progress.linesParsed++;
-        if (rec.type === "assistant") handleAssistant(acc, rec);
-        else if (rec.type === "user") handleUser(acc, rec);
+        if (rec.type === "assistant") {
+          trackSessionTime(acc, rec);
+          handleAssistant(acc, rec);
+        } else if (rec.type === "user") {
+          trackSessionTime(acc, rec);
+          handleUser(acc, rec);
+        }
         else if (
           rec.type === "mode" &&
           typeof rec.mode === "string" &&
@@ -436,6 +493,31 @@ function lengthBuckets(map: Map<string, number>): Record<string, number> {
   return out;
 }
 
+export const DURATION_BUCKETS = [
+  "5分未満",
+  "5〜15分",
+  "15〜60分",
+  "1〜3時間",
+  "3時間以上",
+] as const;
+
+function durationBuckets(
+  map: Map<string, { min: number; max: number }>,
+): Record<string, number> {
+  const out: Record<string, number> = Object.fromEntries(
+    DURATION_BUCKETS.map((b) => [b, 0]),
+  );
+  for (const { min, max } of map.values()) {
+    const minutes = (max - min) / 60_000;
+    if (minutes < 5) out["5分未満"]++;
+    else if (minutes < 15) out["5〜15分"]++;
+    else if (minutes < 60) out["15〜60分"]++;
+    else if (minutes < 180) out["1〜3時間"]++;
+    else out["3時間以上"]++;
+  }
+  return out;
+}
+
 export async function parseTranscripts(
   files: File[],
   name: string,
@@ -477,6 +559,7 @@ export async function parseTranscripts(
         messages: e.messages,
         toolCalls: e.toolCalls,
         userPrompts: e.userPrompts,
+        sidechainMessages: e.sidechainMessages,
       })),
     tokensByModel: Object.fromEntries(acc.tokensByModel),
     skills: sortDesc(acc.skills),
@@ -530,6 +613,10 @@ export async function parseTranscripts(
     modes: sessionCounts(acc.modeSessions),
     permissionModes: sessionCounts(acc.permissionModeSessions),
     sessionLengthBuckets: lengthBuckets(acc.sessionMessages),
+    sessionDurationBuckets: durationBuckets(acc.sessionTimes),
+    sidechainMessages: acc.sidechainMessages,
+    toolErrors: sortDesc(acc.toolErrors),
+    efforts: sortDesc(acc.efforts),
     webSearchRequests: acc.webSearchRequests,
     webFetchRequests: acc.webFetchRequests,
     sessionsWithSkill: acc.sessionsWithSkill.size,

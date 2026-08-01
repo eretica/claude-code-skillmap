@@ -22,12 +22,15 @@ import { exKey } from "../lib/exclude";
 import type { DateRange, Period } from "../lib/teamStats";
 import {
   activityIn,
+  delegationRate,
   featureCounts,
   inRange,
   periodRange,
   skillRateParts,
   sumOf,
 } from "../lib/teamStats";
+import { costInRange, formatUsd, loadRates, saveRates } from "../lib/pricing";
+import type { ModelRate } from "../lib/pricing";
 import { PeriodFilter } from "./PeriodFilter";
 import { weeklyTrend } from "../lib/trend";
 import { Dropzone } from "./Dropzone";
@@ -35,7 +38,14 @@ import { ShareModal } from "./ShareModal";
 import { InfoTip } from "./InfoTip";
 import { StatTile } from "./StatTile";
 import { BarList } from "./BarList";
-import { DailyCharts, GrowthChart, TokenChart } from "./ChartsLazy";
+import { RatesEditor } from "./RatesEditor";
+import { ToolErrorTable } from "./ToolErrorTable";
+import {
+  DailyCharts,
+  GrowthChart,
+  TokenChart,
+  TokenTrendChart,
+} from "./ChartsLazy";
 
 const NAME_KEY = "claude-graph:name";
 const EXCLUDED_KEY = "claude-graph:excluded";
@@ -86,6 +96,12 @@ export function PersonalView() {
   >("idle");
   const [shareError, setShareError] = useState("");
   const statsInputRef = useRef<HTMLInputElement>(null);
+  // 概算コストの単価(このブラウザにのみ保存。共有されない)
+  const [rates, setRates] = useState<Record<string, ModelRate>>(loadRates);
+  const updateRates = (r: Record<string, ModelRate>) => {
+    setRates(r);
+    saveRates(r);
+  };
 
   useEffect(() => {
     localStorage.setItem(NAME_KEY, name.trim());
@@ -340,6 +356,12 @@ export function PersonalView() {
     [summary],
   );
 
+  const delegation = summary ? delegationRate(summary, range) : null;
+  const cost = useMemo(
+    () => (summary ? costInRange(summary, range, rates) : null),
+    [summary, range, rates],
+  );
+
   const allTime = range ? " (全期間)" : "";
 
   // カテゴリ内の全項目を一括で含める/除外する
@@ -521,6 +543,12 @@ export function PersonalView() {
               }
             />
             <StatTile
+              label="委任度"
+              info="全アシスタントメッセージのうち、サブエージェント(サイドチェーン)側で処理された割合。高いほど作業を子エージェントに任せて並列化できています"
+              value={delegation === null ? "–" : `${delegation}%`}
+              sub="サブエージェント側の処理比率"
+            />
+            <StatTile
               label="活用機能の種類"
               info="一度でも使ったことのあるスキル+サブエージェント+MCPツールの種類数。活用の幅を表します"
               value={view.distinctFeatures}
@@ -603,11 +631,38 @@ export function PersonalView() {
               <p className="card-desc">エントリポイント別セッション数</p>
               <BarList data={summary.entrypoints ?? {}} />
             </div>
+            <div className="card">
+              <h2>セッション実時間の分布{allTime}<InfoTip text="セッションの最初の記録から最後の記録までの経過時間の分布。放置していた時間も含むため、正確な作業時間ではなく「セッションを開きっぱなしにする長さ」の傾向です" /></h2>
+              <p className="card-desc">最初〜最後の記録の経過時間</p>
+              <BarList
+                data={summary.sessionDurationBuckets ?? {}}
+                keepOrder
+                color="var(--series-3)"
+              />
+            </div>
+            <div className="card">
+              <h2>推論エフォート{allTime}<InfoTip text="モデルの思考の深さ設定(low/medium/high/xhigh/max)別のアシスタントメッセージ数。/model コマンド等で切り替えられます。記録のない古いバージョンの分は含まれません" /></h2>
+              <p className="card-desc">エフォート別メッセージ数</p>
+              <BarList data={summary.efforts ?? {}} color="var(--series-4)" />
+            </div>
+            <div className="card">
+              <h2>ツール失敗率{allTime}<InfoTip text="ツール実行がエラー(is_error)になった回数と割合。Bashのコマンド失敗なども含むため、0にするものではなく「異常に高いツールがないか」を見る指標です。エラー内容は収集していません" /></h2>
+              <p className="card-desc">失敗回数の多いツール</p>
+              <ToolErrorTable
+                toolErrors={summary.toolErrors ?? {}}
+                toolCalls={{ ...summary.tools, ...summary.mcpTools }}
+              />
+            </div>
           </div>
 
           <div className="card">
             <h2>日別アクティビティ</h2>
             <DailyCharts data={view.daily} />
+          </div>
+
+          <div className="card">
+            <h2>トークンの日別推移</h2>
+            <TokenTrendChart dailyTokens={summary.dailyTokens ?? {}} range={range} />
           </div>
 
           <div className="card">
@@ -617,6 +672,46 @@ export function PersonalView() {
                 ([label, tokens]) => ({ label, tokens }),
               )}
             />
+          </div>
+
+          <div className="card">
+            <h2>概算コスト<InfoTip text="トークン使用量に公式API単価を掛けたAPI従量課金換算の概算です。サブスクリプション(Pro/Max)利用時の実際の支払額ではありません。単価は下の「単価を編集」から変更でき、このブラウザにのみ保存されます" /></h2>
+            <p className="card-desc">
+              API従量課金に換算した場合の金額(実際の請求額ではありません)
+            </p>
+            {cost && (
+              <>
+                <div
+                  style={{
+                    fontSize: 32,
+                    fontWeight: 600,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {formatUsd(cost.usd)}
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 400,
+                      color: "var(--text-secondary)",
+                      marginLeft: 8,
+                    }}
+                  >
+                    {range ? "選択期間" : "全期間"}
+                  </span>
+                </div>
+                {cost.unknownModels.length > 0 && (
+                  <p className="empty-note">
+                    単価未設定のモデルを除く: {cost.unknownModels.join(", ")}
+                  </p>
+                )}
+                <RatesEditor
+                  rates={rates}
+                  usedModels={Object.keys(summary.tokensByModel)}
+                  onChange={updateRates}
+                />
+              </>
+            )}
           </div>
 
           <div className="card">

@@ -157,6 +157,7 @@ export function sanitizeSummary(body: unknown): UsageSummary {
         messages: num(d?.messages),
         toolCalls: num(d?.toolCalls),
         userPrompts: num(d?.userPrompts),
+        sidechainMessages: num(d?.sidechainMessages),
       }))
       .filter((d: { date: string | null }) => d.date !== null) as
       UsageSummary["dailyActivity"],
@@ -175,6 +176,10 @@ export function sanitizeSummary(body: unknown): UsageSummary {
     modes: countRecord(b.modes),
     permissionModes: countRecord(b.permissionModes),
     sessionLengthBuckets: countRecord(b.sessionLengthBuckets),
+    sessionDurationBuckets: countRecord(b.sessionDurationBuckets),
+    sidechainMessages: num(b.sidechainMessages),
+    toolErrors: countRecord(b.toolErrors),
+    efforts: countRecord(b.efforts),
     webSearchRequests: num(b.webSearchRequests),
     webFetchRequests: num(b.webFetchRequests),
     sessionsWithSkill: num(b.sessionsWithSkill),

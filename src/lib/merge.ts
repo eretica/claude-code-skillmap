@@ -110,5 +110,7 @@ export function mergeSummaries(
     repos: sortDesc(catTotals.repos),
     sessionsWithSkill:
       sum((d) => d.skillSessions) || fresh.sessionsWithSkill,
+    sidechainMessages:
+      sum((d) => d.sidechainMessages) || fresh.sidechainMessages,
   };
 }

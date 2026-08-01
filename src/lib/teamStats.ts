@@ -157,6 +157,42 @@ export function skillRate(m: UsageSummary, repo?: string | null): number {
   return den > 0 ? Math.round((num / den) * 100) : 0;
 }
 
+/**
+ * 委任度(全アシスタントメッセージのうちサブエージェント側で処理された割合)の分子・分母。
+ * サイドチェーン情報を持つ日だけで計算する(バックフィル日による希釈を防ぐ)。
+ * 旧サマリーは全期間値にフォールバック
+ */
+export function delegationParts(
+  m: UsageSummary,
+  range: DateRange | null,
+): { num: number; den: number } {
+  const days = (m.dailyActivity ?? []).filter(
+    (d) => typeof d.sidechainMessages === "number" && inRange(d.date, range),
+  );
+  if (days.length > 0) {
+    return {
+      num: days.reduce((s, d) => s + (d.sidechainMessages ?? 0), 0),
+      den: days.reduce((s, d) => s + d.messages, 0),
+    };
+  }
+  // サイドチェーン情報を一切持たない旧サマリーは「0%」ではなく「データなし」にする
+  if (range || m.sidechainMessages === undefined) return { num: 0, den: 0 };
+  return {
+    num: m.sidechainMessages,
+    den: m.totals.assistantMessages,
+  };
+}
+
+/** 委任度(%)。データがない場合はnull */
+export function delegationRate(
+  m: UsageSummary,
+  range: DateRange | null,
+): number | null {
+  const { num, den } = delegationParts(m, range);
+  if (den === 0) return null;
+  return Math.round((num / den) * 100);
+}
+
 /** 期間内に使った機能の種類数(スキル+サブエージェント+MCP) */
 export function diversity(
   m: UsageSummary,

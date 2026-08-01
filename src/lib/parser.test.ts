@@ -149,6 +149,66 @@ describe("parseTranscripts", () => {
     for (const secret of SECRETS) expect(json).not.toContain(secret);
   });
 
+  it("委任度・ツール失敗・エフォート・セッション実時間を集計する", async () => {
+    const TS2 = "2026-07-01T10:20:00.000Z"; // 20分後 → 15〜60分バケット
+    const file = fileOf([
+      assistantRow(
+        [{ type: "tool_use", id: "tu1", name: "Bash", input: { command: "SECRET_CMD" } }],
+        { effort: "high" },
+      ),
+      {
+        type: "user",
+        timestamp: TS,
+        sessionId: "s1",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tu1",
+              is_error: true,
+              content: "SECRET_ERR: command failed",
+            },
+          ],
+        },
+      },
+      assistantRow(
+        [{ type: "tool_use", id: "tu2", name: "mcp__memory__read_graph", input: {} }],
+        { effort: "high" },
+      ),
+      {
+        type: "user",
+        timestamp: TS,
+        sessionId: "s1",
+        message: {
+          content: [
+            { type: "tool_result", tool_use_id: "tu2", is_error: true },
+            { type: "tool_result", tool_use_id: "unknown-id", is_error: true },
+          ],
+        },
+      },
+      // サブエージェント側(subagents/配下のファイル)の行はisSidechain:true
+      assistantRow([], { isSidechain: true, effort: "low" }),
+      assistantRow([], { isSidechain: true, timestamp: TS2 }),
+    ]);
+
+    const s = await parseTranscripts([file], "tester");
+
+    expect(s.sidechainMessages).toBe(2);
+    expect(s.dailyActivity[0].sidechainMessages).toBe(2);
+    expect(s.toolErrors).toEqual({ Bash: 1, "memory/read_graph": 1 });
+    expect(s.efforts).toEqual({ high: 2, low: 1 });
+    expect(s.sessionDurationBuckets).toEqual({
+      "5分未満": 0,
+      "5〜15分": 0,
+      "15〜60分": 1,
+      "1〜3時間": 0,
+      "3時間以上": 0,
+    });
+    const json = JSON.stringify(s);
+    expect(json).not.toContain("SECRET_ERR");
+    expect(json).not.toContain("SECRET_CMD");
+  });
+
   it("<synthetic>モデルと壊れた行をスキップする", async () => {
     const file = fileOf([
       assistantRow([], { message: { model: "<synthetic>", usage: { input_tokens: 999 }, content: [] } }),

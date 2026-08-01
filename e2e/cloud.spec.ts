@@ -83,6 +83,19 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
     .setInputFiles("e2e/fixtures/projects");
   await expect(page.locator(".stat-tile").first()).toBeVisible();
 
+  // 新指標(個人): 委任度タイル・ツール失敗率・概算コスト
+  await expect(page.locator(".stat-tile", { hasText: "委任度" })).toContainText(
+    "20%", // サイドチェーン1 / アシスタント5件
+  );
+  await expect(
+    page
+      .locator(".card", { hasText: "ツール失敗率" })
+      .locator("tbody tr", { hasText: "Bash" }),
+  ).toContainText("100%");
+  await expect(
+    page.locator(".card h2").filter({ hasText: /^概算コスト/ }),
+  ).toBeVisible();
+
   // stats-cacheバックフィル: トランスクリプトに無い過去日(2026-05-01)が取り込まれる
   await page
     .locator("input.backfill-input")
@@ -169,6 +182,17 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
   ).toHaveCount(0);
   await expect(
     page.locator(".card", { hasText: "リポジトリ × メンバー" }),
+  ).toBeVisible();
+
+  // 新指標(チーム): 委任度ランキング・概算コスト・モデル×メンバー
+  await expect(
+    page.locator(".card", { hasText: "委任度" }).locator(".bl-label"),
+  ).toHaveCount(3); // demo-a / demo-b / e2e-user(共有済み分)
+  await expect(
+    page.locator(".card", { hasText: "メンバー別 概算コスト" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".card", { hasText: "モデル × メンバー" }),
   ).toBeVisible();
 
   // リポジトリフィルタ: 選ぶと全指標がそのリポジトリ内に絞られる

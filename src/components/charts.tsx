@@ -298,6 +298,254 @@ export function TokenChart({
   );
 }
 
+// トークンの日別推移: 合計と出力を縦に並べた2つの単系列チャートにする
+// (キャッシュ読取が支配的で積み上げでは入出力が見えなくなるため、二軸も積み上げも使わない)
+export function TokenTrendChart({
+  dailyTokens,
+  range,
+}: {
+  dailyTokens: Record<string, Record<string, TokenUsage>>;
+  range: DateRange | null;
+}) {
+  const days = Object.entries(dailyTokens)
+    .filter(([date]) => inRange(date, range))
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([date, models]) => {
+      const t = Object.values(models).reduce(
+        (acc, u) => ({
+          input: acc.input + u.input,
+          output: acc.output + u.output,
+          cacheRead: acc.cacheRead + u.cacheRead,
+          cacheCreation: acc.cacheCreation + u.cacheCreation,
+        }),
+        { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+      );
+      return {
+        date,
+        ...t,
+        total: t.input + t.output + t.cacheRead + t.cacheCreation,
+      };
+    });
+  if (days.length === 0) return <div className="empty-note">データなし</div>;
+  // データのない日を0で埋める
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const filled: typeof days = [];
+  const cursor = new Date(`${days[0].date}T00:00:00Z`);
+  const end = days[days.length - 1].date;
+  for (;;) {
+    const date = cursor.toISOString().slice(0, 10);
+    filled.push(
+      byDate.get(date) ?? {
+        date,
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheCreation: 0,
+        total: 0,
+      },
+    );
+    if (date >= end || filled.length > 5000) break;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+        合計トークン / 日(キャッシュ含む)
+      </div>
+      <ResponsiveContainer width="100%" height={150}>
+        <ComposedChart
+          data={filled}
+          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+        >
+          <CartesianGrid stroke="var(--grid)" vertical={false} />
+          <XAxis
+            dataKey="date"
+            tick={axisTick}
+            stroke="var(--axis)"
+            tickLine={false}
+            minTickGap={40}
+          />
+          <YAxis
+            tick={axisTick}
+            stroke="transparent"
+            tickLine={false}
+            tickFormatter={fmt}
+            width={44}
+          />
+          <Tooltip content={<VizTooltip />} cursor={{ stroke: "var(--axis)" }} />
+          <Area
+            type="monotone"
+            dataKey="total"
+            name="合計トークン"
+            stroke="var(--series-1)"
+            strokeWidth={2}
+            fill="var(--series-1)"
+            fillOpacity={0.12}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+      <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+        出力トークン / 日
+        <InfoTip text="モデルが実際に生成した文章量。キャッシュを含む合計に比べてコストへの寄与が大きく、作業量の実感に近い指標です" />
+      </div>
+      <ResponsiveContainer width="100%" height={120}>
+        <LineChart
+          data={filled}
+          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+        >
+          <CartesianGrid stroke="var(--grid)" vertical={false} />
+          <XAxis
+            dataKey="date"
+            tick={axisTick}
+            stroke="var(--axis)"
+            tickLine={false}
+            minTickGap={40}
+          />
+          <YAxis
+            tick={axisTick}
+            stroke="transparent"
+            tickLine={false}
+            tickFormatter={fmt}
+            width={44}
+          />
+          <Tooltip content={<VizTooltip />} cursor={{ stroke: "var(--axis)" }} />
+          <Line
+            type="monotone"
+            dataKey="output"
+            name="出力トークン"
+            stroke="var(--series-2)"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <ChartTable
+        headers={["日付", "入力", "出力", "キャッシュ読取", "キャッシュ作成"]}
+        rows={days.map((d) => [
+          d.date,
+          d.input,
+          d.output,
+          d.cacheRead,
+          d.cacheCreation,
+        ])}
+      />
+    </div>
+  );
+}
+
+// モデル×メンバー: メンバーごとの合計トークンをモデル別セグメントで積み上げる。
+// モデル数が多い場合は上位7+「その他」に畳む(9色目を生成しない)
+const MAX_MODEL_SERIES = 7;
+
+export function TeamModelChart({
+  rows,
+}: {
+  rows: { name: string; tokensByModel: Record<string, TokenUsage> }[];
+}) {
+  const sum = (t: TokenUsage) =>
+    t.input + t.output + t.cacheRead + t.cacheCreation;
+  const modelTotals = new Map<string, number>();
+  for (const r of rows)
+    for (const [model, t] of Object.entries(r.tokensByModel))
+      modelTotals.set(model, (modelTotals.get(model) ?? 0) + sum(t));
+  const ranked = [...modelTotals.entries()].sort((a, b) => b[1] - a[1]);
+  if (ranked.length === 0) return <div className="empty-note">データなし</div>;
+  const shown = ranked.slice(0, MAX_MODEL_SERIES).map(([m]) => m);
+  const hasOther = ranked.length > MAX_MODEL_SERIES;
+  const series = hasOther ? [...shown, "その他"] : shown;
+
+  const data = rows
+    .map((r) => {
+      const row: Record<string, string | number> = { member: r.name };
+      for (const s of series) row[s] = 0;
+      let total = 0;
+      for (const [model, t] of Object.entries(r.tokensByModel)) {
+        const key = shown.includes(model) ? model : "その他";
+        row[key] = ((row[key] as number) ?? 0) + sum(t);
+        total += sum(t);
+      }
+      return { row, total };
+    })
+    .sort((a, b) => b.total - a.total)
+    .map((r) => r.row);
+
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={60 + data.length * 44}>
+        <BarChart
+          data={data}
+          layout="vertical"
+          margin={{ top: 4, right: 16, left: 8, bottom: 0 }}
+        >
+          <CartesianGrid stroke="var(--grid)" horizontal={false} />
+          <XAxis
+            type="number"
+            tick={axisTick}
+            stroke="var(--axis)"
+            tickLine={false}
+            tickFormatter={fmt}
+            minTickGap={32}
+          />
+          <YAxis
+            type="category"
+            dataKey="member"
+            tick={{ ...axisTick, fill: "var(--text-secondary)" }}
+            stroke="transparent"
+            tickLine={false}
+            width={110}
+          />
+          <Tooltip
+            content={<VizTooltip />}
+            cursor={{ fill: "var(--grid)", opacity: 0.4 }}
+          />
+          <Legend
+            content={() => (
+              <div
+                className="legend"
+                style={{ justifyContent: "center", marginTop: 4 }}
+              >
+                {series.map((s, i) => (
+                  <span key={s}>
+                    <span
+                      className="swatch"
+                      style={{
+                        background: SERIES_COLORS[i % SERIES_COLORS.length],
+                      }}
+                    />
+                    {s}
+                  </span>
+                ))}
+                <InfoTip text="メンバーごとの合計トークン(キャッシュ含む)をモデル別に積み上げた図。誰がどのモデルをどれだけ使っているかが分かります" />
+              </div>
+            )}
+          />
+          {series.map((s, i) => (
+            <Bar
+              key={s}
+              dataKey={s}
+              name={s}
+              stackId="m"
+              fill={SERIES_COLORS[i % SERIES_COLORS.length]}
+              stroke="var(--surface-1)"
+              strokeWidth={1}
+              maxBarSize={18}
+              radius={i === series.length - 1 ? [0, 4, 4, 0] : undefined}
+            />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+      <ChartTable
+        headers={["メンバー", ...series]}
+        rows={data.map((r) => [
+          r.member as string,
+          ...series.map((s) => r[s] as number),
+        ])}
+      />
+    </div>
+  );
+}
+
 // 自分の成長トレンド: 週次のスキル利用セッション率と活用機能の種類数。
 // 指標のスケールが異なるため二軸にせず、縦に並べた2つの単系列チャートにする。
 export function GrowthChart({ points }: { points: WeeklyTrendPoint[] }) {
