@@ -4,6 +4,7 @@ import type {
   TokenUsage,
   UsageSummary,
 } from "./types";
+import { FEATURE_CATEGORIES } from "./types";
 
 // 再共有時の蓄積: サーバーに保存済みのサマリーと今回の解析結果を「日付キー」で結合する。
 // ローカルのトランスクリプトは cleanupPeriodDays(既定30日)で消えるため、
@@ -11,14 +12,7 @@ import type {
 // サーバーへは結合済みサマリーを送る(除外設定は結合後に適用するので、
 // 除外したい項目名がサーバーに渡ることはない)。
 
-const FEATURE_CATEGORIES: FeatureCategory[] = [
-  "skills",
-  "subagents",
-  "mcpTools",
-  "slashCommands",
-  "plugins",
-  "repos",
-];
+
 
 function sortDesc(rec: Record<string, number>): Record<string, number> {
   return Object.fromEntries(Object.entries(rec).sort((a, b) => b[1] - a[1]));

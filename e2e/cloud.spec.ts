@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const ROOM = "e2eroom0123456789abcdef"; // mock-api.mjs の E2E_ROOM と一致させる
+const ROOM = "e2eroom0123456789abcdef"; // mock-api.ts の E2E_ROOM と一致させる
 
 // ルーティング: ルートは個人解析のみ(共有・チーム機能なし)、フル機能はルームURLから
 test("ルートは個人解析のみでアップロードできない", async ({ page }) => {

@@ -29,14 +29,8 @@ import { AskWhoCard } from "./AskWhoCard";
 import { TeamHeatmap } from "./TeamHeatmap";
 import { TeamDailyChart, TokenChart } from "./ChartsLazy";
 
-const FEATURE_CATEGORIES: FeatureCategory[] = [
-  "skills",
-  "repos",
-  "subagents",
-  "mcpTools",
-  "slashCommands",
-  "plugins",
-];
+// 集計はtypes.tsの共有定数を使う(表示順が異なるだけの別リストを作らない)
+import { FEATURE_CATEGORIES } from "../lib/types";
 
 function readSummaries(files: File[]): Promise<UsageSummary[]> {
   return Promise.all(
@@ -311,6 +305,7 @@ export function TeamView() {
             <StatTile label="メンバー" value={members.length} />
             <StatTile
               label="合計セッション"
+              info="メンバー全員のセッション数合計。蓄積データは日別合計のため、日をまたぐセッションが重複計上されることがあります"
               value={members.reduce(
                 (s, m) => s + activityOf.get(m.name)!.sessions,
                 0,

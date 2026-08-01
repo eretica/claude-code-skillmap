@@ -1,18 +1,17 @@
-import type { UsageSummary } from "./types";
+import type { FeatureCategory, UsageSummary } from "./types";
 
 // 共有・エクスポート前に「公開したくない項目」を落とすための仕組み。
 // 除外はカテゴリ×項目名の単位で行い、サマリー本体から該当キーを削除する。
 
-export const EXCLUDABLE_CATEGORIES = [
-  ["skills", "スキル"],
-  ["slashCommands", "スラッシュコマンド"],
-  ["subagents", "サブエージェント"],
-  ["mcpTools", "MCPツール"],
-  ["plugins", "プラグイン"],
-  ["repos", "リポジトリ"],
-] as const;
+import { FEATURE_CATEGORIES } from "./types";
+import { CATEGORY_LABEL } from "./teamStats";
 
-export type ExcludableCategory = (typeof EXCLUDABLE_CATEGORIES)[number][0];
+/** 除外UIに出すカテゴリ(=全機能カテゴリ)。定義はtypes.tsに一本化 */
+export const EXCLUDABLE_CATEGORIES = FEATURE_CATEGORIES.map(
+  (c) => [c, CATEGORY_LABEL[c]] as const,
+);
+
+export type ExcludableCategory = FeatureCategory;
 
 export function exKey(category: ExcludableCategory, name: string): string {
   return `${category}${name}`;

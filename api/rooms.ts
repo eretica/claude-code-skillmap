@@ -1,15 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { neon } from "@neondatabase/serverless";
 import { randomBytes } from "node:crypto";
-import { ensureTables, isValidRoomId } from "./_lib/db.js";
+import { ensureTables, getSql, isValidRoomId } from "./_lib/db.js";
 
 // ルーム管理API。middleware.tsのベーシック認証で保護される(管理者専用)。
-
-function getSql() {
-  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
-  if (!url) throw new Error("DATABASE_URL is not configured");
-  return neon(url);
-}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Cache-Control", "no-store");

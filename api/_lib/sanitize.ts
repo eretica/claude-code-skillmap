@@ -1,4 +1,5 @@
 import type { UsageSummary } from "../../src/lib/types.js";
+import { FEATURE_CATEGORIES } from "../../src/lib/types.js";
 
 // サーバー側の二重防御: クライアントが何を送ってきても、
 // 既知のフィールドだけを型検証しながら再構築する。
@@ -26,14 +27,6 @@ function dateStr(v: unknown): string | null {
   return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
 }
 
-const FEATURE_CATEGORIES = [
-  "skills",
-  "subagents",
-  "mcpTools",
-  "slashCommands",
-  "plugins",
-] as const;
-
 function sanitizeDailyRepos(v: unknown): UsageSummary["dailyRepos"] {
   if (!v || typeof v !== "object") return undefined;
   const out: NonNullable<UsageSummary["dailyRepos"]> = {};
@@ -52,6 +45,7 @@ function sanitizeDailyRepos(v: unknown): UsageSummary["dailyRepos"] {
       const b = bucket as any;
       const features: Record<string, Record<string, number>> = {};
       for (const category of FEATURE_CATEGORIES) {
+        if (category === "repos") continue; // リポジトリ内のfeaturesにreposは無い
         const rec = b.features?.[category];
         if (rec && typeof rec === "object")
           features[category] = countRecord(rec);

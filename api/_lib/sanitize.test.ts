@@ -35,6 +35,18 @@ describe("sanitizeSummary", () => {
     expect(out.tokensByModel["claude-fable-5"].cacheRead).toBe(3);
   });
 
+  it("dailyFeaturesのreposカテゴリが保存後も残る(期間フィルタのリポジトリ集計に必須)", () => {
+    // 過去にサニタイズのカテゴリリストが独自定義でreposを落とし、
+    // クラウド版の期間フィルタでのみリポジトリ×メンバーが空になるバグがあった
+    const out = sanitizeSummary({
+      ...valid,
+      dailyFeatures: {
+        "2026-07-01": { skills: { dataviz: 1 }, repos: { "my-repo": 5 } },
+      },
+    });
+    expect(out.dailyFeatures?.["2026-07-01"]?.repos).toEqual({ "my-repo": 5 });
+  });
+
   it("未知のフィールドは出力に含めない(会話本文などの混入防止)", () => {
     const out = sanitizeSummary({
       ...valid,

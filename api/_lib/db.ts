@@ -1,6 +1,13 @@
 import type { NeonQueryFunction } from "@neondatabase/serverless";
+import { neon } from "@neondatabase/serverless";
 
 export type Sql = NeonQueryFunction<false, false>;
+
+export function getSql(): Sql {
+  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+  if (!url) throw new Error("DATABASE_URL is not configured");
+  return neon(url);
+}
 
 // スキーマ:
 //   rooms(id PK, label, created_at)      — 管理画面から発行するルーム

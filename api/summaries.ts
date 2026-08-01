@@ -1,16 +1,10 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { neon } from "@neondatabase/serverless";
 import { sanitizeSummary } from "./_lib/sanitize.js";
-import { ensureTables, isValidRoomId } from "./_lib/db.js";
+import { ensureTables, getSql, isValidRoomId } from "./_lib/db.js";
+import { isFeatureCategory, removeItemFromSummary } from "./_lib/mutate.js";
 
 // サマリーの保存・取得API。すべてルーム(推測不能なID)にスコープされ、
 // 存在しないルームIDは404を返す。ルームIDを知っていることが実質の認可。
-
-function getSql() {
-  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
-  if (!url) throw new Error("DATABASE_URL is not configured");
-  return neon(url);
-}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 個人別の動的データなので、CDN・ブラウザに一切キャッシュさせない
@@ -70,21 +64,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         string,
         unknown
       >;
-      const CATEGORIES = [
-        "skills",
-        "subagents",
-        "mcpTools",
-        "slashCommands",
-        "plugins",
-        "repos",
-      ];
       if (
         typeof name !== "string" ||
         !name ||
         typeof key !== "string" ||
         !key ||
-        typeof category !== "string" ||
-        !CATEGORIES.includes(category)
+        !isFeatureCategory(category)
       ) {
         res.status(400).json({ error: "name, category, key are required" });
         return;
@@ -98,45 +83,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = rows[0].data as any;
-      let changed = false;
-      if (data[category] && key in data[category]) {
-        delete data[category][key];
-        changed = true;
-      }
-      // 日別カウント側にも同じ項目が残っていれば併せて削除する
-      if (data.dailyFeatures && typeof data.dailyFeatures === "object") {
-        for (const cats of Object.values(data.dailyFeatures)) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const rec = (cats as any)?.[category];
-          if (rec && key in rec) {
-            delete rec[key];
-            changed = true;
-          }
-        }
-      }
-      // リポジトリ別の日別データからも削除する
-      // (repos削除=そのリポジトリ丸ごと、機能削除=各リポジトリ内の該当項目)
-      if (data.dailyRepos && typeof data.dailyRepos === "object") {
-        for (const repoMap of Object.values(data.dailyRepos)) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const rm = repoMap as any;
-          if (category === "repos") {
-            if (rm && key in rm) {
-              delete rm[key];
-              changed = true;
-            }
-          } else {
-            for (const bucket of Object.values(rm ?? {})) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const rec = (bucket as any)?.features?.[category];
-              if (rec && key in rec) {
-                delete rec[key];
-                changed = true;
-              }
-            }
-          }
-        }
-      }
+      const changed = removeItemFromSummary(data, category, key);
       if (changed) {
         await sql`
           UPDATE summaries

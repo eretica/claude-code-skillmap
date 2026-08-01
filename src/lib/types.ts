@@ -20,14 +20,22 @@ export interface DailyActivity {
   userPrompts?: number;
 }
 
-/** 期間フィルタの対象になる機能カテゴリ(reposはcwd末尾のリポジトリ名) */
-export type FeatureCategory =
-  | "skills"
-  | "subagents"
-  | "mcpTools"
-  | "slashCommands"
-  | "plugins"
-  | "repos";
+/**
+ * 機能カテゴリの唯一の定義(reposはcwd末尾のリポジトリ名)。
+ * パーサ・除外・マージ・サニタイズ・PATCH・UIはすべてここから派生させること。
+ * 個別にリストを書くと「サーバー保存時にreposの日別が落ちる」型のズレバグを生む(実績あり)。
+ */
+export const FEATURE_CATEGORIES = [
+  "skills",
+  "subagents",
+  "mcpTools",
+  "slashCommands",
+  "plugins",
+  "repos",
+] as const;
+
+/** 期間フィルタの対象になる機能カテゴリ */
+export type FeatureCategory = (typeof FEATURE_CATEGORIES)[number];
 
 /** リポジトリ×日別の活動と機能利用(チーム集計のリポジトリフィルタに使う) */
 export interface RepoDaily {
@@ -96,4 +104,7 @@ export interface UsageSummary {
   sessionsWithSubagent: number;
 }
 
+// 破壊的変更(フィールドの意味変更・削除)をする場合はversionを上げ、
+// 読み込み直後の1箇所(サーバーGET後/ファイル読込後)でmigrate関数を通すこと。
+// 追加のみの変更はoptionalフィールド+旧サマリー注記で吸収する(現行方針)。
 export const SUMMARY_SCHEMA_VERSION = 1 as const;

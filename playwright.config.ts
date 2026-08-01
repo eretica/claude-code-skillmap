@@ -10,7 +10,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "node e2e/mock-api.mjs",
+      command: "npx tsx e2e/mock-api.ts",
       port: 8788,
       reuseExistingServer: false,
     },

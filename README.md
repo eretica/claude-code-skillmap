@@ -53,7 +53,7 @@ npm run build # dist/ に静的ファイルを出力(任意の静的ホスティ
 ```sh
 npm run dev:cloud        # フロント (/api は localhost:8788 へプロキシ)
 vercel dev --listen 8788 # API (要 vercel login と DATABASE_URL)
-# DBなしで試すだけなら: node e2e/mock-api.mjs (インメモリのモックAPI)
+# DBなしで試すだけなら: npx tsx e2e/mock-api.ts (インメモリのモックAPI)
 ```
 
 ## テスト
@@ -105,6 +105,7 @@ GitHub Actions (`.github/workflows/ci.yml`) でpush/PR時に両方+ビルドを�
 - ローカルの `~/.claude/projects/` は既定で**30日**で自動削除されます。ローカル保持を伸ばしたい場合は `~/.claude/settings.json` に `"cleanupPeriodDays": 365` などを設定してください
 - DB側は日付マージにより蓄積されます。データ量は日別レコードで1人あたり**年間200〜400KB程度**なので、Neon無料枠(512MB)で数十人×数年は余裕です
 - 最低でも30日に1回共有すれば履歴が途切れません(間が空くと、その間のローカル削除済み期間は記録されません)
+- 日付は閲覧者のローカルタイムゾーンで区切ります。時差のあるメンバーが混在するチームでは日の境界が人によってずれます(同一タイムゾーンのチームを想定した割り切りです)
 
 ## データソース
 
