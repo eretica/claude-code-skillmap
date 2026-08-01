@@ -2,16 +2,29 @@ import { expect, test } from "@playwright/test";
 
 const ROOM = "e2eroom0123456789abcdef"; // mock-api.mjs の E2E_ROOM と一致させる
 
-// ルーティング: ルートはランディングのみ、ルームURLでアプリが開く
-test("ルートはランディングのみでデータページを表示しない", async ({ page }) => {
+// ルーティング: ルートは個人解析のみ(共有・チーム機能なし)、フル機能はルームURLから
+test("ルートは個人解析のみでアップロードできない", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("ルームURLが必要です")).toBeVisible();
-  await expect(page.locator(".dropzone")).toHaveCount(0);
+  await expect(page.getByText("個人解析モード")).toBeVisible();
+  await expect(page.locator(".dropzone")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "チーム集計" })).toHaveCount(0);
   // noindexメタが入っている
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
     "content",
     /noindex/,
   );
+  // 解析はできるが、共有ボタンは存在せずエクスポートのみ
+  await page
+    .locator("input[type=file]")
+    .first()
+    .setInputFiles("e2e/fixtures/projects");
+  await expect(page.locator(".stat-tile").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "チームに共有" })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole("button", { name: "サマリーJSONをエクスポート" }),
+  ).toBeVisible();
 });
 
 test("管理画面でルームの発行・一覧ができる", async ({ page }) => {

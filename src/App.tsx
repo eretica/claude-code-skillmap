@@ -8,20 +8,30 @@ import { AdminView } from "./components/AdminView";
 
 type Tab = "personal" | "team";
 
-// クラウド版: ルームURL(/r/…)以外ではデータページを一切表示しない
-function Landing() {
+// クラウド版のルート(/): 個人解析のみ利用できる。
+// サーバーへの共有・チーム集計はルームURL(/r/…)からのみ。
+function PersonalOnly() {
   return (
     <div>
       <header className="app-header">
         <h1>claude-code-skillmap</h1>
+        <span className="subtitle">
+          Claude Code のスキル・サブエージェント活用を可視化する
+        </span>
       </header>
-      <div className="card" style={{ marginTop: 24 }}>
-        <h2>ルームURLが必要です</h2>
+      <div className="privacy-note">
+        🔒 解析はすべてこのブラウザ内で完結します。トランスクリプトの内容が
+        ネットワークに送信されることはありません。
+      </div>
+      <div className="card">
+        <h2>個人解析モード</h2>
         <p className="card-desc" style={{ marginBottom: 0 }}>
-          このアプリはルーム単位で利用します。チームの管理者から共有された
-          ルームURL(<code>/r/…</code>)からアクセスしてください。
+          ここでは自分のトランスクリプトをブラウザ内で解析して閲覧できます
+          (サーバーへのアップロードはできません)。チームへの共有・チーム集計は、
+          管理者から共有されたルームURL(<code>/r/…</code>)から利用してください。
         </p>
       </div>
+      <PersonalView />
     </div>
   );
 }
@@ -37,7 +47,7 @@ export default function App() {
 
   if (IS_CLOUD) {
     if (isAdminPath()) return <AdminView />;
-    if (!currentRoomId()) return <Landing />;
+    if (!currentRoomId()) return <PersonalOnly />;
   }
 
   return (

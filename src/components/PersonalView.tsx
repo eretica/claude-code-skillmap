@@ -12,7 +12,7 @@ import {
   loadDirHandle,
   saveDirHandle,
 } from "../lib/handleStore";
-import { IS_CLOUD } from "../lib/config";
+import { CAN_SHARE } from "../lib/config";
 import { fetchTeamSummaries, shareSummary } from "../lib/api";
 import { mergeSummaries } from "../lib/merge";
 import { isStatsCacheFile, parseStatsCacheFile } from "../lib/statsCache";
@@ -388,7 +388,7 @@ export function PersonalView() {
               }}
             />
             <button
-              className={IS_CLOUD ? "ghost" : "primary"}
+              className={CAN_SHARE ? "ghost" : "primary"}
               onClick={() =>
                 downloadJson(
                   outgoing,
@@ -398,7 +398,7 @@ export function PersonalView() {
             >
               サマリーJSONをエクスポート
             </button>
-            {IS_CLOUD && (
+            {CAN_SHARE && (
               <button
                 className="primary"
                 disabled={!name.trim() || shareState === "sending"}
@@ -414,13 +414,13 @@ export function PersonalView() {
             >
               {showPreview
                 ? "内容を閉じる"
-                : IS_CLOUD
+                : CAN_SHARE
                   ? "送信内容を確認"
                   : "出力内容を確認"}
             </button>
             <span className="empty-note">
               {excluded.size > 0 && `${excluded.size} 項目を除外して`}
-              集計値のみが{IS_CLOUD ? "共有" : "出力"}されます(会話・パス・コードは含まれません)
+              集計値のみが{CAN_SHARE ? "共有" : "出力"}されます(会話・パス・コードは含まれません)
             </span>
           </div>
 
@@ -451,13 +451,13 @@ export function PersonalView() {
 
           {showPreview && (
             <div className="card">
-              <h2>{IS_CLOUD ? "送信" : "出力"}されるJSON(これがすべてです)</h2>
+              <h2>{CAN_SHARE ? "送信" : "出力"}されるJSON(これがすべてです)</h2>
               <p className="card-desc">
-                {IS_CLOUD ? "「チームに共有」で送信" : "エクスポートで出力"}
+                {CAN_SHARE ? "「チームに共有」で送信" : "エクスポートで出力"}
                 されるのはこの内容だけです。会話本文・ファイルパス・コード・
                 セッションIDが含まれていないことを確認できます(
                 {(JSON.stringify(outgoing).length / 1024).toFixed(1)} KB)。
-                {IS_CLOUD &&
+                {CAN_SHARE &&
                   " サーバー保存時には、過去に共有済みの内容(既にサーバーにあるデータ)と日付単位でマージされます。"}
               </p>
               <pre className="preview-json">
