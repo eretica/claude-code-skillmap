@@ -341,7 +341,9 @@ export function TeamView() {
               void removeItem("skills", name, feature)
             }
           />
-          <div className="card-grid">
+          {/* 半幅カードはメンバー列が5人程度で横スクロールになるため、
+              人数が多いときは全幅の縦積みに切り替える */}
+          <div className={members.length <= 4 ? "card-grid" : undefined}>
             {(
               ["subagents", "mcpTools", "slashCommands", "plugins"] as const
             ).map((cat) => (
