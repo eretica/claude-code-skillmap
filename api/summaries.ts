@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
-import { sanitizeSummary } from "./_lib/sanitize";
-import { ensureTables, isValidRoomId } from "./_lib/db";
+import { sanitizeSummary } from "./_lib/sanitize.js";
+import { ensureTables, isValidRoomId } from "./_lib/db.js";
 
 // サマリーの保存・取得API。すべてルーム(推測不能なID)にスコープされ、
 // 存在しないルームIDは404を返す。ルームIDを知っていることが実質の認可。

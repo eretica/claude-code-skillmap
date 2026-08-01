@@ -1,4 +1,4 @@
-import type { UsageSummary } from "../../src/lib/types";
+import type { UsageSummary } from "../../src/lib/types.js";
 
 // サーバー側の二重防御: クライアントが何を送ってきても、
 // 既知のフィールドだけを型検証しながら再構築する。

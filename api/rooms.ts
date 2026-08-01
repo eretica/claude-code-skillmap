@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
 import { randomBytes } from "node:crypto";
-import { ensureTables, isValidRoomId } from "./_lib/db";
+import { ensureTables, isValidRoomId } from "./_lib/db.js";
 
 // ルーム管理API。middleware.tsのベーシック認証で保護される(管理者専用)。
 

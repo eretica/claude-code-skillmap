@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeSummary } from "./sanitize";
+import { sanitizeSummary } from "./sanitize.js";
 
 const valid = {
   schemaVersion: 1,

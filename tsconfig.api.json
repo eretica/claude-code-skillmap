@@ -6,8 +6,8 @@
     "types": ["node"],
     "skipLibCheck": true,
 
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
