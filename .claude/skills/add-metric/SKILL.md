@@ -24,8 +24,13 @@ description: 新しい計測指標・機能カテゴリ・表示カードをclau
   - MCP: ツール名 `mcp__<server>__<tool>`
   - プラグイン: スキル/コマンド名の `plugin:` プレフィックス
 - `user` 行: `<command-name>` タグ(スラッシュコマンド)。本文は読まない
+  - `content[]` の `tool_result`: `is_error` と `tool_use_id` のみ使う(ツール失敗率)。名前は同一ファイル内で先行するassistant行の `tool_use.id` → 名前マップで解決する
 - `mode` / `permission-mode` 行: セッション数ベースで集計(行が繰り返し記録されるため回数を数えてはいけない)
 - `<synthetic>` モデルは除外する
+- サブエージェントの会話は `<session-id>/subagents/agent-*.jsonl` に分かれており、行に `isSidechain: true` が付く(sessionIdは親と同じ)。ディレクトリwalkは再帰なので自動的に取り込まれる。委任度はこのフラグから算出
+- assistant行の `effort`(トップレベル、"high"等)= 推論エフォート。古いCCバージョンの行には無い
+- セッション実時間は assistant/user 行の `timestamp` のセッション内min/max差から算出
+- 概算コストの単価は `lib/pricing.ts` の `DEFAULT_RATES`(公式単価を手動同梱。価格取得APIは非公開)。ユーザー編集分は localStorage `claude-graph:rates` にのみ保存し、サマリーには含めない
 - 補助: `~/.claude/stats-cache.json`(日別アクティビティのバックフィル用、`lib/statsCache.ts`)
 
 未知の構造を使う前に、実データでフィールドをgrepして構造を確認すること(例: `grep -h '"type":"mode"' ~/.claude/projects/*/*.jsonl | head`)。**確認結果の実値をコードやテストに貼らない**(合成値に置き換える)。
