@@ -1,0 +1,16 @@
+# 依存の自動更新。Actionsは週次、npmは月次(minor/patchはまとめてPR)
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
