@@ -31,7 +31,7 @@ function cellStyle(count: number, max: number) {
 
 const CATEGORY_INFO: Record<FeatureCategory, string> = {
   skills:
-    "スキル=作業手順をパッケージ化した拡張機能。行=スキル、列=メンバー。色が濃いほど利用回数が多い(logスケール)。列名クリックでその人の利用順に並べ替え",
+    "スキル=作業手順をパッケージ化した拡張機能。行=スキル、列=メンバー。色が濃いほど利用回数が多い(logスケール)。スキル名クリック=そのスキルの上位ユーザー順に列を並べ替え、メンバー名クリック=その人の利用順に行を並べ替え",
   subagents:
     "調査・レビューなどを委任する子エージェントの種類別利用回数。列名クリックで並べ替え",
   mcpTools:
@@ -63,9 +63,20 @@ export function TeamHeatmap({
   limit?: number;
   onRemoveItem: (memberName: string, feature: string) => void;
 }) {
-  // 並び順: 合計(デフォルト) or メンバー列クリックでその人の利用回数順
+  // 行の並び順: 合計(デフォルト) / 利用人数 / メンバー列クリックでその人の利用回数順
   const [sortBy, setSortBy] = useState<string>("total");
+  // 列の並び順: スキル行クリックで「そのスキルの上位ユーザー順」にメンバー列を並べ替え
+  const [memberSort, setMemberSort] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+
+  const orderedMembers = useMemo(() => {
+    if (!memberSort) return members;
+    return [...members].sort(
+      (a, b) =>
+        (counts.get(b.name)![memberSort] ?? 0) -
+        (counts.get(a.name)![memberSort] ?? 0),
+    );
+  }, [members, counts, memberSort]);
 
   const { totals, maxCell, hasAny } = useMemo(() => {
     const featureNames = [
@@ -128,7 +139,7 @@ export function TeamHeatmap({
                   {CATEGORY_LABEL[category]}
                   {sortBy === "total" && " ▼"}
                 </th>
-                {members.map((m) => (
+                {orderedMembers.map((m) => (
                   <th
                     className={`col sortable${m.name === highlightName ? " me-col" : ""}`}
                     key={m.name}
@@ -155,8 +166,19 @@ export function TeamHeatmap({
               {(showAll ? totals : totals.slice(0, limit)).map(
                 ({ feature, users }) => (
                   <tr key={feature}>
-                    <th title={feature}>{feature}</th>
-                    {members.map((m) => {
+                    <th
+                      className="sortable"
+                      title={`クリックで「${feature}」をよく使う人の順にメンバー列を並べ替え`}
+                      onClick={() =>
+                        setMemberSort((prev) =>
+                          prev === feature ? null : feature,
+                        )
+                      }
+                    >
+                      {feature}
+                      {memberSort === feature && " ▶"}
+                    </th>
+                    {orderedMembers.map((m) => {
                       const count = counts.get(m.name)![feature] ?? 0;
                       const deletable = editMode && count > 0;
                       return (
