@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSessionIndex,
   buildTimeScale,
+  listSubagentRuns,
   parseSessionDetail,
 } from "./sessionDetail";
 
@@ -95,6 +96,14 @@ function mainFile(): File {
 function subagentFile(): File {
   return jsonl("agent-aresearcher-0123456789abcdef.jsonl", [
     {
+      type: "user",
+      timestamp: T(4, 20),
+      sessionId: SID,
+      agentId: "aresearcher-0123456789abcdef",
+      isSidechain: true,
+      message: { content: "SECRET_SUB_PROMPT 12345" },
+    },
+    {
       type: "assistant",
       timestamp: T(4, 30),
       sessionId: SID,
@@ -171,8 +180,8 @@ describe("sessionDetail", () => {
     expect(agent.span.tools).toEqual([
       expect.objectContaining({ name: "Bash", count: 2 }),
     ]);
-    // スパンの実時間はサブエージェント自身のトランスクリプトから取る
-    expect(agent.span.end - agent.span.start).toBe(90_000);
+    // スパンの実時間はサブエージェント自身のトランスクリプトから取る(10:04:20〜10:06:00)
+    expect(agent.span.end - agent.span.start).toBe(100_000);
 
     // 累積消費用の使用量: 本体+サブエージェント分が時系列で入る
     expect(detail.usagePoints).toEqual([
@@ -192,6 +201,27 @@ describe("sessionDetail", () => {
     expect(json).not.toContain("SECRET_PROMPT");
     expect(json).not.toContain("SECRET_TASK_PROMPT");
     expect(json).not.toContain("/Users/secret");
+  });
+
+  it("サブエージェント一覧: 種別照合・所要・トークン・prompt長(文字数のみ)", async () => {
+    const index = await buildSessionIndex([mainFile(), subagentFile()]);
+    const runs = await listSubagentRuns(index);
+    expect(runs).toHaveLength(1);
+    const run = runs[0];
+    expect(run.name).toBe("researcher");
+    expect(run.type).toBe("Explore"); // 親セッションのTask起動と名前で照合
+    expect(run.model).toBe("claude-haiku-4-5");
+    expect(run.sessionTitle).toBe("テストセッション");
+    expect(run.tokens).toEqual({
+      input: 3,
+      output: 2,
+      cacheRead: 0,
+      cacheCreation: 0,
+    });
+    expect(run.promptChars).toBe("SECRET_SUB_PROMPT 12345".length);
+    expect(run.end! - run.start!).toBe(100_000); // 10:04:20〜10:06:00
+    // プロンプト本文は含まれない(文字数のみ)
+    expect(JSON.stringify(runs)).not.toContain("SECRET_SUB_PROMPT");
   });
 
   it("5分超のアイドルギャップを圧縮した仮想時間軸を作る", () => {

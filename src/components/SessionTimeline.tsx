@@ -34,7 +34,7 @@ function fmtClock(ts: number, base?: number): string {
   return time;
 }
 
-function fmtTokens(n: number): string {
+export function fmtTokens(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
@@ -317,6 +317,9 @@ function CumulativeChart({
         </span>
         <span>{fmtClock(detail.end, detail.start)}</span>
       </div>
+      <p className="tl-note">
+        縦の破線は skill・サブエージェントの呼び出し位置です。総消費トークンはキャッシュ読み込み・書き込みを含みます。コストはAPI従量課金換算の概算です。
+      </p>
     </div>
   );
 }

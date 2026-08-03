@@ -35,8 +35,13 @@ import type {
   SessionDetail,
   SessionIndex,
   SessionMeta,
+  SubagentRun,
 } from "../lib/sessionDetail";
-import { buildSessionIndex, parseSessionDetail } from "../lib/sessionDetail";
+import {
+  buildSessionIndex,
+  listSubagentRuns,
+  parseSessionDetail,
+} from "../lib/sessionDetail";
 import { PeriodFilter } from "./PeriodFilter";
 import { weeklyTrend } from "../lib/trend";
 import { Dropzone } from "./Dropzone";
@@ -49,6 +54,7 @@ import { ToolErrorTable } from "./ToolErrorTable";
 import { Modal } from "./Modal";
 import { SessionList } from "./SessionList";
 import { SessionTimeline } from "./SessionTimeline";
+import { SubagentRunsTable } from "./SubagentRunsTable";
 import {
   DailyCharts,
   GrowthChart,
@@ -113,6 +119,7 @@ export function PersonalView() {
   };
   // セッション詳細(ローカル閲覧のみ。共有・エクスポートとは別系統)
   const [sessionIndex, setSessionIndex] = useState<SessionIndex | null>(null);
+  const [subagentRuns, setSubagentRuns] = useState<SubagentRun[] | null>(null);
   const [openedSession, setOpenedSession] = useState<{
     meta: SessionMeta;
     detail: SessionDetail;
@@ -229,7 +236,11 @@ export function PersonalView() {
       setSummary(result);
       // セッション詳細用のインデックスは裏で作る(失敗しても解析自体は成立)
       setSessionIndex(null);
-      buildSessionIndex(jsonl).then(setSessionIndex, () => {});
+      setSubagentRuns(null);
+      buildSessionIndex(jsonl).then((idx) => {
+        setSessionIndex(idx);
+        listSubagentRuns(idx).then(setSubagentRuns, () => {});
+      }, () => {});
     } finally {
       setParsing(false);
     }
@@ -767,6 +778,26 @@ export function PersonalView() {
             )}
             {detailLoading && (
               <div className="progress">タイムラインを読み込み中…</div>
+            )}
+          </div>
+
+          <div className="card">
+            <h2>サブエージェント呼び出し<InfoTip text="サブエージェントの起動ごとの一覧。種別=subagent_type と起動名、所要=サブエージェント自身のトランスクリプトの実時間、prompt長=指示プロンプトの文字数(内容は保持していません)。コストはAPI従量課金換算の概算。「見る」で親セッションのタイムラインを開きます。この画面はローカル閲覧のみで共有されません" /></h2>
+            <p className="card-desc">
+              起動ごとの所要・トークン・概算コスト(ローカル閲覧のみ・共有されません)
+            </p>
+            {subagentRuns ? (
+              <SubagentRunsTable
+                runs={subagentRuns}
+                onOpenSession={(sessionId) => {
+                  const m = sessionIndex?.sessions.find(
+                    (s) => s.sessionId === sessionId,
+                  );
+                  if (m) void openSession(m);
+                }}
+              />
+            ) : (
+              <div className="empty-note">一覧を作成中…</div>
             )}
           </div>
         </>

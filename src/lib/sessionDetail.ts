@@ -13,6 +13,8 @@ export interface SessionMeta {
   prompts: number;
   skills: string[];
   agentSpawns: number;
+  /** Task/Agent起動の名前とsubagent_type(サブエージェント一覧の種別照合用) */
+  spawns: { name: string; type: string }[];
   file: File;
 }
 
@@ -167,6 +169,7 @@ export async function buildSessionIndex(files: File[]): Promise<SessionIndex> {
       prompts: 0,
       skills: [],
       agentSpawns: 0,
+      spawns: [],
       file,
     };
     const skills = new Set<string>();
@@ -192,8 +195,18 @@ export async function buildSessionIndex(files: File[]): Promise<SessionIndex> {
             if (!it || it.type !== "tool_use") continue;
             if (it.name === "Skill" && typeof it.input?.skill === "string")
               skills.add(it.input.skill);
-            else if (it.name === "Agent" || it.name === "Task")
+            else if (it.name === "Agent" || it.name === "Task") {
               meta.agentSpawns++;
+              const type =
+                typeof it.input?.subagent_type === "string"
+                  ? it.input.subagent_type
+                  : "general-purpose";
+              const name =
+                typeof it.input?.name === "string" && it.input.name.length > 0
+                  ? it.input.name
+                  : type;
+              meta.spawns.push({ name, type });
+            }
           }
         }
       } else {
@@ -277,6 +290,9 @@ async function extractLane(file: File): Promise<{
   model: string | null;
   agentId: string | null;
   hasAttribution: boolean;
+  repo: string | null;
+  /** 最初のユーザーメッセージ(=サブエージェントでは指示プロンプト)の文字数。内容は保持しない */
+  firstPromptChars: number | null;
 }> {
   const spans: RawSpan[] = [];
   const events: TimelineEvent[] = [];
@@ -290,6 +306,8 @@ async function extractLane(file: File): Promise<{
   let model: string | null = null;
   let agentId: string | null = null;
   let hasAttribution = false;
+  let repo: string | null = null;
+  let firstPromptChars: number | null = null;
 
   await eachLine(file, (rec) => {
     if (rec.type !== "assistant" && rec.type !== "user") return;
@@ -309,11 +327,18 @@ async function extractLane(file: File): Promise<{
           events.push({ kind: "command", name: m[1].trim(), ts });
         }
       }
-      if (!isCommand) events.push({ kind: "prompt", name: "プロンプト", ts });
+      if (!isCommand) {
+        events.push({ kind: "prompt", name: "プロンプト", ts });
+        // 文字数だけ数える(本文は保持しない)
+        if (firstPromptChars === null)
+          firstPromptChars = texts.reduce((s, t) => s + t.length, 0);
+      }
       return;
     }
 
     messages++;
+    if (repo === null && typeof rec.cwd === "string")
+      repo = rec.cwd.split("/").filter(Boolean).pop() ?? null;
     if (agentId === null && typeof rec.agentId === "string")
       agentId = rec.agentId;
     if (model === null && typeof rec.message?.model === "string" &&
@@ -393,6 +418,8 @@ async function extractLane(file: File): Promise<{
     model,
     agentId,
     hasAttribution,
+    repo,
+    firstPromptChars,
   };
 }
 
@@ -505,6 +532,77 @@ export async function parseSessionDetail(
     hasAttribution: main.hasAttribution,
     usagePoints,
   };
+}
+
+// ---- サブエージェント呼び出し一覧 ----
+
+/** サブエージェント1起動分のメタデータ(会話本文は含まない) */
+export interface SubagentRun {
+  sessionId: string;
+  sessionTitle: string | null;
+  name: string;
+  /** subagent_type(親セッションのTask起動と名前で照合) */
+  type: string | null;
+  model: string | null;
+  repo: string | null;
+  start: number | null;
+  end: number | null;
+  totalTokens: number;
+  /** トークン内訳(コスト計算用) */
+  tokens: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheCreation: number;
+  };
+  /** 指示プロンプトの文字数(内容は保持しない) */
+  promptChars: number | null;
+  messages: number;
+}
+
+/** 全セッションのサブエージェント起動を新しい順で一覧にする */
+export async function listSubagentRuns(
+  index: SessionIndex,
+): Promise<SubagentRun[]> {
+  const byId = new Map(index.sessions.map((s) => [s.sessionId, s]));
+  const out: SubagentRun[] = [];
+  for (const [sessionId, files] of index.subagentFiles) {
+    const session = byId.get(sessionId);
+    for (const file of files) {
+      const lane = await extractLane(file);
+      const name = agentNameFromId(lane.agentId, file.name);
+      const lower = name.toLowerCase();
+      const spawn = session?.spawns.find(
+        (s) => s.name.toLowerCase() === lower,
+      );
+      const tokens = lane.usagePoints.reduce(
+        (acc, p) => ({
+          input: acc.input + p.input,
+          output: acc.output + p.output,
+          cacheRead: acc.cacheRead + p.cacheRead,
+          cacheCreation: acc.cacheCreation + p.cacheCreation,
+        }),
+        { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+      );
+      out.push({
+        sessionId,
+        sessionTitle: session?.title ?? null,
+        name,
+        type: spawn?.type ?? null,
+        model: lane.model,
+        repo: lane.repo ?? session?.repo ?? null,
+        start: lane.start,
+        end: lane.end,
+        totalTokens:
+          tokens.input + tokens.output + tokens.cacheRead + tokens.cacheCreation,
+        tokens,
+        promptChars: lane.firstPromptChars,
+        messages: lane.messages,
+      });
+    }
+  }
+  out.sort((a, b) => (b.start ?? 0) - (a.start ?? 0));
+  return out;
 }
 
 // ---- 仮想時間軸(アイドルギャップ圧縮) ----
