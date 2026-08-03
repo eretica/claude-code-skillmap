@@ -42,6 +42,12 @@ function mainFile(): File {
       attributionSkill: "demo-skill",
       message: {
         model: "claude-fable-5",
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_read_input_tokens: 100,
+          cache_creation_input_tokens: 50,
+        },
         content: [
           { type: "tool_use", id: "tu2", name: "Write", input: { file_path: "/Users/secret/x" } },
         ],
@@ -107,6 +113,7 @@ function subagentFile(): File {
       isSidechain: true,
       message: {
         model: "claude-haiku-4-5",
+        usage: { input_tokens: 3, output_tokens: 2 },
         content: [{ type: "tool_use", id: "s2", name: "Bash", input: {} }],
       },
     },
@@ -166,6 +173,19 @@ describe("sessionDetail", () => {
     ]);
     // スパンの実時間はサブエージェント自身のトランスクリプトから取る
     expect(agent.span.end - agent.span.start).toBe(90_000);
+
+    // 累積消費用の使用量: 本体+サブエージェント分が時系列で入る
+    expect(detail.usagePoints).toEqual([
+      expect.objectContaining({
+        model: "claude-fable-5",
+        input: 10,
+        output: 5,
+        cacheRead: 100,
+        cacheCreation: 50,
+      }),
+      expect.objectContaining({ model: "claude-haiku-4-5", input: 3 }),
+    ]);
+    expect(detail.usagePoints[0].ts).toBeLessThan(detail.usagePoints[1].ts);
 
     // 本文・引数・パスは一切含まれない
     const json = JSON.stringify(detail);

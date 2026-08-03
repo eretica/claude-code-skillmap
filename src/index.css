@@ -490,32 +490,103 @@ details.chart-table thead th {
   color: var(--text-primary);
 }
 
+.tl-panel {
+  border: 1px solid var(--grid);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-top: 12px;
+}
+
+.tl-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.tl-panel-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.tl-toggle {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.tl-toggle button {
+  font-size: 12px;
+  padding: 2px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--grid);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tl-toggle button.active {
+  border-color: var(--series-1);
+  color: var(--text-primary);
+}
+
 .tl-body {
   position: relative;
-  margin-top: 8px;
 }
 
 .tl-row {
   display: grid;
-  grid-template-columns: 64px 260px 1fr;
+  grid-template-columns: 240px 1fr;
   align-items: center;
-  min-height: 24px;
+  min-height: 26px;
   font-size: 12.5px;
-  border-bottom: 1px solid var(--grid);
 }
 
 .tl-row.expandable {
   cursor: pointer;
 }
 
-.tl-row.expandable:hover {
-  background: var(--surface-2);
+.tl-row.expandable:hover .tl-label {
+  color: var(--text-primary);
 }
 
-.tl-time {
+.tl-row.marker-lane {
+  min-height: 18px;
+}
+
+.tl-row.marker-lane .tl-track {
+  background: transparent;
+  height: 16px;
+}
+
+.tl-marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  line-height: 1;
+  cursor: default;
+}
+
+.tl-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  margin-top: 6px;
+}
+
+.tl-axis-mid {
+  color: var(--text-secondary);
+}
+
+.tl-cum {
+  display: block;
+  width: 100%;
+  height: 130px;
+  background: var(--surface-2);
+  border-radius: 6px;
 }
 
 .tl-label {
@@ -548,21 +619,25 @@ details.chart-table thead th {
   color: var(--text-secondary);
 }
 
+/* 各行のレーン(トラック)背景。OTel風に全幅のうっすらした帯を敷く */
 .tl-track {
   position: relative;
-  height: 24px;
+  height: 18px;
+  background: var(--surface-2);
+  border-radius: 5px;
+  margin: 3px 0;
 }
 
 .tl-bar {
   position: absolute;
-  top: 6px;
-  height: 12px;
+  top: 4px;
+  height: 10px;
   border-radius: 4px;
   min-width: 3px;
 }
 
 .tl-bar.thin {
-  top: 9px;
+  top: 6px;
   height: 6px;
   border-radius: 3px;
   opacity: 0.7;
@@ -570,21 +645,11 @@ details.chart-table thead th {
 
 .tl-bar-label {
   position: absolute;
-  top: 5px;
+  top: 2px;
   font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-
-.tl-dot {
-  position: absolute;
-  top: 8px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  transform: translateX(-4px);
-  box-shadow: 0 0 0 2px var(--surface-1);
 }
 
 .tl-gap {
@@ -593,7 +658,8 @@ details.chart-table thead th {
   bottom: 0;
   border-left: 1px dashed var(--axis);
   opacity: 0.3;
-  z-index: 0;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .progress {

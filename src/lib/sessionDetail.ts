@@ -52,6 +52,16 @@ export type TimelineItem =
   | { type: "event"; event: TimelineEvent }
   | { type: "span"; span: TimelineSpan };
 
+/** 累積消費チャート用: assistantメッセージ1件ごとのトークン使用量(本文は含まない) */
+export interface UsagePoint {
+  ts: number;
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+}
+
 export interface SessionDetail {
   sessionId: string;
   start: number;
@@ -61,6 +71,8 @@ export interface SessionDetail {
   topTools: ToolAgg[];
   /** attributionSkill付きの新形式か(falseならスキルは呼び出しイベントのみ) */
   hasAttribution: boolean;
+  /** 時系列のトークン使用量(サブエージェント分も含む) */
+  usagePoints: UsagePoint[];
 }
 
 const COMMAND_RE = /<command-name>([^<]+)<\/command-name>/;
@@ -258,6 +270,7 @@ async function extractLane(file: File): Promise<{
   events: TimelineEvent[];
   agentSpawns: { name: string; type: string; ts: number }[];
   topTools: Map<string, ToolAgg>;
+  usagePoints: UsagePoint[];
   start: number | null;
   end: number | null;
   messages: number;
@@ -269,6 +282,7 @@ async function extractLane(file: File): Promise<{
   const events: TimelineEvent[] = [];
   const agentSpawns: { name: string; type: string; ts: number }[] = [];
   const topTools = new Map<string, ToolAgg>();
+  const usagePoints: UsagePoint[] = [];
   let current: RawSpan | null = null;
   let start: number | null = null;
   let end: number | null = null;
@@ -305,6 +319,24 @@ async function extractLane(file: File): Promise<{
     if (model === null && typeof rec.message?.model === "string" &&
         !rec.message.model.startsWith("<"))
       model = rec.message.model;
+
+    // 累積消費チャート用の使用量(モデルとトークン数のみ)
+    const usage = rec.message?.usage;
+    if (
+      usage &&
+      typeof usage === "object" &&
+      typeof rec.message?.model === "string" &&
+      !rec.message.model.startsWith("<")
+    ) {
+      usagePoints.push({
+        ts,
+        model: rec.message.model,
+        input: usage.input_tokens ?? 0,
+        output: usage.output_tokens ?? 0,
+        cacheRead: usage.cache_read_input_tokens ?? 0,
+        cacheCreation: usage.cache_creation_input_tokens ?? 0,
+      });
+    }
 
     // attributionSkill = このメッセージがどのスキルの指示下で生成されたか
     const attr =
@@ -354,6 +386,7 @@ async function extractLane(file: File): Promise<{
     events,
     agentSpawns,
     topTools,
+    usagePoints,
     start,
     end,
     messages,
@@ -376,6 +409,7 @@ export async function parseSessionDetail(
   subFiles: File[],
 ): Promise<SessionDetail> {
   const main = await extractLane(meta.file);
+  const usagePoints: UsagePoint[] = [...main.usagePoints];
 
   const items: TimelineItem[] = [];
   for (const e of main.events) items.push({ type: "event", event: e });
@@ -403,6 +437,7 @@ export async function parseSessionDetail(
   const spawnsLeft = [...main.agentSpawns];
   for (const file of subFiles) {
     const lane = await extractLane(file);
+    usagePoints.push(...lane.usagePoints);
     const name = agentNameFromId(lane.agentId, file.name);
     const lower = name.toLowerCase();
     const matchIdx = spawnsLeft.findIndex(
@@ -457,6 +492,8 @@ export async function parseSessionDetail(
     return ta - tb;
   });
 
+  usagePoints.sort((a, b) => a.ts - b.ts);
+
   const start = meta.start ?? main.start ?? 0;
   const end = meta.end ?? main.end ?? start;
   return {
@@ -466,6 +503,7 @@ export async function parseSessionDetail(
     items: filteredItems,
     topTools: sortedTools(main.topTools),
     hasAttribution: main.hasAttribution,
+    usagePoints,
   };
 }
 
