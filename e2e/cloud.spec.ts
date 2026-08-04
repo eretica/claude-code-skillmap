@@ -113,14 +113,23 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
   await tl.locator(".modal-close").click();
   await expect(page.locator(".modal")).toHaveCount(0);
 
-  // サブエージェント呼び出し一覧: 種別照合・prompt長(文字数)・「見る」でタイムラインへ
+  // サブエージェント呼び出し一覧: 種別照合・prompt長(文字数)
   const subCard = page.locator(".card", { hasText: "サブエージェント呼び出し" });
   const subRow = subCard.locator("tbody tr").first();
   await expect(subRow).toContainText("Explore · explore");
   await expect(subRow).toContainText("haiku-4-5");
   await expect(subRow).toContainText(String("explore the demo repo".length));
+  // 「詳細」=エージェント単体のミニタイムライン
   await subRow.getByRole("button", { name: /見る/ }).click();
+  await expect(page.locator(".modal", { hasText: "エージェント本体" })).toBeVisible();
+  await page.locator(".modal .modal-close").click();
+  // 「開く」=親セッションのタイムライン(ツール失敗マーカー付き)
+  await subRow.getByRole("button", { name: /開く/ }).click();
   await expect(page.locator(".modal .tl-row").first()).toBeVisible();
+  await expect(
+    page.locator('.modal .tl-marker[title*="Bash 失敗"]'),
+  ).toBeVisible();
+  // 重かったターン表は表示されない(fixtureはプロンプト0〜1件のため)
   await page.locator(".modal .modal-close").click();
   await expect(page.locator(".modal")).toHaveCount(0);
 

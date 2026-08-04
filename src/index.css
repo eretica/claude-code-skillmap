@@ -628,6 +628,16 @@ details.chart-table thead th {
   text-decoration: underline;
 }
 
+.mini-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.mini-table th.sortable:hover {
+  color: var(--text-primary);
+}
+
 .tl-label {
   display: flex;
   align-items: center;

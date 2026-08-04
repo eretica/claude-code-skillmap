@@ -5,7 +5,7 @@ import type {
   TimeScale,
 } from "../lib/sessionDetail";
 import { buildTimeScale } from "../lib/sessionDetail";
-import { loadRates, rateFor, formatUsd } from "../lib/pricing";
+import { costOfTokens, loadRates, rateFor, formatUsd } from "../lib/pricing";
 import { InfoTip } from "./InfoTip";
 
 // OpenTelemetryのトレースビュー風タイムライン。
@@ -184,7 +184,7 @@ function SpanRows({
 
 interface Marker {
   ts: number;
-  kind: "skill" | "command" | "prompt";
+  kind: "skill" | "command" | "prompt" | "error" | "model" | "compact";
   name: string;
 }
 
@@ -192,11 +192,12 @@ function collectMarkers(detail: SessionDetail): Marker[] {
   const out: Marker[] = [];
   for (const item of detail.items) {
     if (item.type === "event") {
-      if (item.event.kind === "command")
-        out.push({ ts: item.event.ts, kind: "command", name: item.event.name });
-      else if (item.event.kind === "prompt")
-        out.push({ ts: item.event.ts, kind: "prompt", name: "プロンプト" });
-      else out.push({ ts: item.event.ts, kind: "skill", name: item.event.name });
+      const e = item.event;
+      if (e.kind === "skill-call")
+        out.push({ ts: e.ts, kind: "skill", name: e.name });
+      else if (e.kind === "prompt")
+        out.push({ ts: e.ts, kind: "prompt", name: "プロンプト" });
+      else out.push({ ts: e.ts, kind: e.kind, name: e.name });
     } else if (item.span.kind === "skill") {
       out.push({ ts: item.span.start, kind: "skill", name: item.span.name });
     }
@@ -208,6 +209,9 @@ const MARKER_STYLE: Record<Marker["kind"], { color: string; glyph: string }> = {
   skill: { color: "var(--series-1)", glyph: "▲" },
   command: { color: "var(--series-5)", glyph: "▲" },
   prompt: { color: "var(--series-2)", glyph: "●" },
+  error: { color: "var(--series-8)", glyph: "▲" },
+  model: { color: "var(--series-7)", glyph: "◆" },
+  compact: { color: "var(--series-4)", glyph: "◆" },
 };
 
 // 累積消費チャート: コスト/総トークンのステップ折れ線(SVG)。
@@ -224,38 +228,50 @@ function CumulativeChart({
   const [mode, setMode] = useState<"cost" | "tokens">("cost");
   const rates = useMemo(() => loadRates(), []);
 
-  const { path, max } = useMemo(() => {
+  // メイン会話とサブエージェントを別系列の累積ステップ線で描く
+  const { paths, max, subTotal } = useMemo(() => {
     const W = 1000;
     const H = 100;
-    let cum = 0;
-    const pts: [number, number][] = [[0, 0]];
+    const valueOf = (p: (typeof detail.usagePoints)[number]): number => {
+      if (mode === "tokens")
+        return p.input + p.output + p.cacheRead + p.cacheCreation;
+      const r = rateFor(p.model, rates);
+      if (!r) return 0;
+      return (
+        (p.input * r.input +
+          p.output * r.output +
+          p.cacheRead * r.input * 0.1 +
+          p.cacheCreation * r.input * 1.25) /
+        1_000_000
+      );
+    };
+    const series: Record<"main" | "sub", [number, number][]> = {
+      main: [],
+      sub: [],
+    };
+    const cum = { main: 0, sub: 0 };
     for (const p of detail.usagePoints) {
-      if (mode === "cost") {
-        const r = rateFor(p.model, rates);
-        if (r)
-          cum +=
-            (p.input * r.input +
-              p.output * r.output +
-              p.cacheRead * r.input * 0.1 +
-              p.cacheCreation * r.input * 1.25) /
-            1_000_000;
-      } else {
-        cum += p.input + p.output + p.cacheRead + p.cacheCreation;
+      cum[p.origin] += valueOf(p);
+      series[p.origin].push([scale.pos(p.ts), cum[p.origin]]);
+    }
+    const max = Math.max(cum.main, cum.sub, Number.MIN_VALUE);
+    const toPath = (pts: [number, number][]): string => {
+      if (pts.length === 0) return "";
+      let d = `M 0 ${H}`;
+      let prevY = H;
+      for (const [x, v] of pts) {
+        const px = x * W;
+        const py = H - (v / max) * (H - 6);
+        d += ` L ${px.toFixed(1)} ${prevY.toFixed(1)} L ${px.toFixed(1)} ${py.toFixed(1)}`;
+        prevY = py;
       }
-      pts.push([scale.pos(p.ts), cum]);
-    }
-    const max = cum || 1;
-    // ステップ(直前の値を保ってから上げる)で描く
-    let d = `M 0 ${H}`;
-    let prevY = H;
-    for (const [x, v] of pts) {
-      const px = x * W;
-      const py = H - (v / max) * (H - 6);
-      d += ` L ${px.toFixed(1)} ${prevY.toFixed(1)} L ${px.toFixed(1)} ${py.toFixed(1)}`;
-      prevY = py;
-    }
-    d += ` L ${W} ${prevY.toFixed(1)}`;
-    return { path: d, max: cum };
+      return `${d} L ${W} ${prevY.toFixed(1)}`;
+    };
+    return {
+      paths: { main: toPath(series.main), sub: toPath(series.sub) },
+      max: cum.main + cum.sub,
+      subTotal: cum.sub,
+    };
   }, [detail, scale, mode, rates]);
 
   if (detail.usagePoints.length === 0) return null;
@@ -302,20 +318,46 @@ function CumulativeChart({
           />
         ))}
         <path
-          d={path}
+          d={paths.main}
           fill="none"
           stroke="var(--series-1)"
           strokeWidth={1.6}
           vectorEffect="non-scaling-stroke"
         />
+        {paths.sub && (
+          <path
+            d={paths.sub}
+            fill="none"
+            stroke="var(--series-3)"
+            strokeWidth={1.6}
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
       </svg>
       <div className="tl-axis">
         <span>{fmtClock(detail.start)}</span>
         <span className="tl-axis-mid">
-          累積{mode === "cost" ? "コスト" : "トークン"}(最大{" "}
-          {mode === "cost" ? formatUsd(max) : fmtTokens(max)})
+          累積{mode === "cost" ? "コスト" : "トークン"}(合計{" "}
+          {mode === "cost" ? formatUsd(max) : fmtTokens(max)}
+          {subTotal > 0 &&
+            ` · うちサブエージェント ${
+              mode === "cost" ? formatUsd(subTotal) : fmtTokens(subTotal)
+            }`}
+          )
         </span>
         <span>{fmtClock(detail.end, detail.start)}</span>
+      </div>
+      <div className="legend" style={{ marginTop: 6 }}>
+        <span>
+          <span className="swatch" style={{ background: "var(--series-1)" }} />
+          メイン会話
+        </span>
+        {paths.sub && (
+          <span>
+            <span className="swatch" style={{ background: "var(--series-3)" }} />
+            サブエージェント
+          </span>
+        )}
       </div>
       <p className="tl-note">
         縦の破線は skill・サブエージェントの呼び出し位置です。総消費トークンはキャッシュ読み込み・書き込みを含みます。コストはAPI従量課金換算の概算です。
@@ -324,9 +366,89 @@ function CumulativeChart({
   );
 }
 
+// ターン別の重さ: プロンプト→次のプロンプトまでを1ターンとして重い順に並べる
+const MAX_TURN_ROWS = 10;
+
+function TurnTable({ detail }: { detail: SessionDetail }) {
+  const rates = useMemo(() => loadRates(), []);
+  const rows = useMemo(() => {
+    return detail.turns
+      .map((t) => {
+        let tokens = 0;
+        let usd = 0;
+        let subTokens = 0;
+        for (const p of t.points) {
+          const total = p.input + p.output + p.cacheRead + p.cacheCreation;
+          tokens += total;
+          if (p.origin === "sub") subTokens += total;
+          const r = rateFor(p.model, rates);
+          if (r) usd += costOfTokens(p, r);
+        }
+        return { ...t, tokens, usd, subTokens };
+      })
+      .sort((a, b) => b.tokens - a.tokens)
+      .slice(0, MAX_TURN_ROWS);
+  }, [detail, rates]);
+  if (rows.length < 2) return null;
+  return (
+    <div className="tl-panel">
+      <div className="tl-panel-head">
+        <h3>重かったターン</h3>
+        <InfoTip text="プロンプトから次のプロンプトまでを1ターンとして、トークン消費の多い順に並べています。実働=そのターンで最後に活動があった時刻までの経過(待ち時間は含みません)。サブエージェントの消費もそのターンに帰属させています。プロンプト本文は保持していません" />
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table className="mini-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>開始</th>
+              <th>実働</th>
+              <th>msg</th>
+              <th>ツール</th>
+              <th>トークン</th>
+              <th>うちサブ</th>
+              <th>コスト</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((t) => (
+              <tr key={t.index}>
+                <td>#{t.index}</td>
+                <td>{fmtClock(t.start, detail.start)}</td>
+                <td>
+                  {t.activityEnd > t.start
+                    ? fmtDuration(t.activityEnd - t.start)
+                    : "–"}
+                </td>
+                <td>{t.messages}</td>
+                <td>{t.toolCalls}</td>
+                <td>{fmtTokens(t.tokens)}</td>
+                <td>{t.subTokens > 0 ? fmtTokens(t.subTokens) : "–"}</td>
+                <td>{t.usd > 0 ? formatUsd(t.usd) : "–"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {detail.turns.length > MAX_TURN_ROWS && (
+        <p className="tl-note">
+          全 {detail.turns.length} ターン中、消費の多い {MAX_TURN_ROWS}{" "}
+          件を表示しています
+        </p>
+      )}
+    </div>
+  );
+}
+
 const MAX_SPAN_ROWS = 200;
 
-export function SessionTimeline({ detail }: { detail: SessionDetail }) {
+export function SessionTimeline({
+  detail,
+  rootLabel = "セッション本体",
+}: {
+  detail: SessionDetail;
+  rootLabel?: string;
+}) {
   const scale = useMemo(
     () => buildTimeScale(collectTimestamps(detail)),
     [detail],
@@ -400,7 +522,7 @@ export function SessionTimeline({ detail }: { detail: SessionDetail }) {
           </div>
           {/* セッション本体 */}
           <div className="tl-row">
-            <div className="tl-label">セッション本体</div>
+            <div className="tl-label">{rootLabel}</div>
             <Bar
               scale={scale}
               start={detail.start}
@@ -466,6 +588,15 @@ export function SessionTimeline({ detail }: { detail: SessionDetail }) {
           <span style={{ color: "var(--text-secondary)" }}>
             <span style={{ color: "var(--series-2)" }}>●</span> プロンプト
           </span>
+          <span style={{ color: "var(--text-secondary)" }}>
+            <span style={{ color: "var(--series-8)" }}>▲</span> ツール失敗
+          </span>
+          <span style={{ color: "var(--text-secondary)" }}>
+            <span style={{ color: "var(--series-7)" }}>◆</span> モデル切替
+          </span>
+          <span style={{ color: "var(--text-secondary)" }}>
+            <span style={{ color: "var(--series-4)" }}>◆</span> コンパクション
+          </span>
           <span>
             <span className="swatch" style={{ background: "var(--series-1)" }} />
             スキル区間
@@ -482,6 +613,7 @@ export function SessionTimeline({ detail }: { detail: SessionDetail }) {
       </div>
 
       <CumulativeChart detail={detail} scale={scale} callMarks={callMarks} />
+      <TurnTable detail={detail} />
     </div>
   );
 }

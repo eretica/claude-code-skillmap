@@ -41,6 +41,7 @@ import {
   buildSessionIndex,
   listSubagentRuns,
   parseSessionDetail,
+  parseSubagentDetail,
 } from "../lib/sessionDetail";
 import { PeriodFilter } from "./PeriodFilter";
 import { weeklyTrend } from "../lib/trend";
@@ -121,7 +122,8 @@ export function PersonalView() {
   const [sessionIndex, setSessionIndex] = useState<SessionIndex | null>(null);
   const [subagentRuns, setSubagentRuns] = useState<SubagentRun[] | null>(null);
   const [openedSession, setOpenedSession] = useState<{
-    meta: SessionMeta;
+    title: string;
+    rootLabel?: string;
     detail: SessionDetail;
   } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -133,7 +135,24 @@ export function PersonalView() {
         meta,
         sessionIndex?.subagentFiles.get(meta.sessionId) ?? [],
       );
-      setOpenedSession({ meta, detail });
+      setOpenedSession({
+        title: meta.title ?? `セッション ${meta.sessionId.slice(0, 8)}…`,
+        detail,
+      });
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const openSubagentDetail = async (run: SubagentRun) => {
+    setDetailLoading(true);
+    try {
+      const detail = await parseSubagentDetail(run);
+      setOpenedSession({
+        title: `${run.type ? `${run.type} · ` : ""}${run.name}`,
+        rootLabel: "エージェント本体",
+        detail,
+      });
     } finally {
       setDetailLoading(false);
     }
@@ -795,6 +814,7 @@ export function PersonalView() {
                   );
                   if (m) void openSession(m);
                 }}
+                onOpenDetail={(run) => void openSubagentDetail(run)}
               />
             ) : (
               <div className="empty-note">一覧を作成中…</div>
@@ -805,13 +825,13 @@ export function PersonalView() {
 
       {openedSession && (
         <Modal
-          title={
-            openedSession.meta.title ??
-            `セッション ${openedSession.meta.sessionId.slice(0, 8)}…`
-          }
+          title={openedSession.title}
           onClose={() => setOpenedSession(null)}
         >
-          <SessionTimeline detail={openedSession.detail} />
+          <SessionTimeline
+            detail={openedSession.detail}
+            rootLabel={openedSession.rootLabel}
+          />
         </Modal>
       )}
 

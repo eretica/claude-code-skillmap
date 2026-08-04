@@ -84,11 +84,42 @@ function mainFile(): File {
         ],
       },
     },
+    // ツール失敗(tu2=Write) → エラーマーカー
+    {
+      type: "user",
+      timestamp: T(2, 30),
+      sessionId: SID,
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu2",
+            is_error: true,
+            content: "SECRET_TOOL_ERR",
+          },
+        ],
+      },
+    },
+    // モデル切替(fable → opus) → モデルマーカー
+    {
+      type: "assistant",
+      timestamp: T(4, 40),
+      sessionId: SID,
+      message: { model: "claude-opus-4-8", content: [] },
+    },
     {
       type: "user",
       timestamp: T(5),
       sessionId: SID,
       message: { content: "<command-name>/clear</command-name>" },
+    },
+    // コンパクション境界(system行)
+    {
+      type: "system",
+      subtype: "compact_boundary",
+      timestamp: T(5, 30),
+      sessionId: SID,
+      compactMetadata: { trigger: "auto", preTokens: 170_000, postTokens: 10_000 },
     },
   ]);
 }
@@ -157,9 +188,27 @@ describe("sessionDetail", () => {
     expect(kinds).toEqual([
       "prompt",
       "skill:demo-skill",
+      "error",
       "agent:researcher",
+      "model",
       "command",
+      "compact",
     ]);
+    const eventByKind = (k: string) => {
+      const it = detail.items.find(
+        (i) => i.type === "event" && i.event.kind === k,
+      );
+      return it?.type === "event" ? it.event : null;
+    };
+    expect(eventByKind("error")?.name).toBe("Write 失敗");
+    expect(eventByKind("model")?.name).toBe("claude-opus-4-8");
+    expect(eventByKind("compact")?.name).toBe("自動コンパクション 170k→10k");
+
+    // ターン集計: プロンプト1件 → 1ターンにサブエージェント消費も帰属
+    expect(detail.turns).toHaveLength(1);
+    expect(detail.turns[0].toolCalls).toBe(6); // main4 + sub Bash×2
+    expect(detail.turns[0].messages).toBe(7); // main5 + sub2
+    expect(detail.turns[0].points).toHaveLength(2);
 
     const skill = detail.items.find(
       (i) => i.type === "span" && i.span.kind === "skill",
@@ -200,6 +249,7 @@ describe("sessionDetail", () => {
     const json = JSON.stringify(detail);
     expect(json).not.toContain("SECRET_PROMPT");
     expect(json).not.toContain("SECRET_TASK_PROMPT");
+    expect(json).not.toContain("SECRET_TOOL_ERR");
     expect(json).not.toContain("/Users/secret");
   });
 

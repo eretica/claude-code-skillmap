@@ -92,7 +92,7 @@ export function rateFor(
   return null;
 }
 
-function costOfTokens(t: TokenUsage, r: ModelRate): number {
+export function costOfTokens(t: TokenUsage, r: ModelRate): number {
   return (
     (t.input * r.input +
       t.output * r.output +

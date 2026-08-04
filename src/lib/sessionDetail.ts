@@ -25,7 +25,13 @@ export interface SessionIndex {
 }
 
 export interface TimelineEvent {
-  kind: "prompt" | "command" | "skill-call";
+  kind:
+    | "prompt"
+    | "command"
+    | "skill-call"
+    | "error"
+    | "model"
+    | "compact";
   name: string;
   ts: number;
 }
@@ -62,6 +68,19 @@ export interface UsagePoint {
   output: number;
   cacheRead: number;
   cacheCreation: number;
+  /** メイン会話かサブエージェント側か(累積消費の系列分け用) */
+  origin: "main" | "sub";
+}
+
+/** プロンプト区切りの1ターン分の重さ(サブエージェント消費もそのターンに帰属) */
+export interface TurnStat {
+  index: number;
+  start: number;
+  /** 次のプロンプトまでの間で最後に活動があった時刻(アイドルは含めない) */
+  activityEnd: number;
+  messages: number;
+  toolCalls: number;
+  points: UsagePoint[];
 }
 
 export interface SessionDetail {
@@ -75,6 +94,8 @@ export interface SessionDetail {
   hasAttribution: boolean;
   /** 時系列のトークン使用量(サブエージェント分も含む) */
   usagePoints: UsagePoint[];
+  /** プロンプト区切りのターン別集計(重い順の分析用) */
+  turns: TurnStat[];
 }
 
 const COMMAND_RE = /<command-name>([^<]+)<\/command-name>/;
@@ -293,23 +314,48 @@ async function extractLane(file: File): Promise<{
   repo: string | null;
   /** 最初のユーザーメッセージ(=サブエージェントでは指示プロンプト)の文字数。内容は保持しない */
   firstPromptChars: number | null;
+  /** ターン集計用: ツール実行・assistantメッセージのタイムスタンプ列 */
+  toolTs: number[];
+  messageTs: number[];
 }> {
   const spans: RawSpan[] = [];
   const events: TimelineEvent[] = [];
   const agentSpawns: { name: string; type: string; ts: number }[] = [];
   const topTools = new Map<string, ToolAgg>();
   const usagePoints: UsagePoint[] = [];
+  // tool_useのid -> 名前。user行のtool_result(is_error)を失敗マーカーに紐付ける
+  const toolUseNames = new Map<string, string>();
+  const toolTs: number[] = [];
+  const messageTs: number[] = [];
   let current: RawSpan | null = null;
   let start: number | null = null;
   let end: number | null = null;
   let messages = 0;
   let model: string | null = null;
+  let lastModel: string | null = null;
   let agentId: string | null = null;
   let hasAttribution = false;
   let repo: string | null = null;
   let firstPromptChars: number | null = null;
 
   await eachLine(file, (rec) => {
+    // コンパクション境界(system行)はイベントとして拾う
+    if (rec.type === "system" && rec.subtype === "compact_boundary") {
+      const ts = tsOf(rec);
+      if (ts === null) return;
+      const md = rec.compactMetadata;
+      const trig = md?.trigger === "manual" ? "手動" : "自動";
+      const pre =
+        typeof md?.preTokens === "number" ? fmtKilo(md.preTokens) : null;
+      const post =
+        typeof md?.postTokens === "number" ? fmtKilo(md.postTokens) : null;
+      events.push({
+        kind: "compact",
+        name: `${trig}コンパクション${pre && post ? ` ${pre}→${post}` : ""}`,
+        ts,
+      });
+      return;
+    }
     if (rec.type !== "assistant" && rec.type !== "user") return;
     const ts = tsOf(rec);
     if (ts === null) return;
@@ -317,6 +363,25 @@ async function extractLane(file: File): Promise<{
     if (end === null || ts > end) end = ts;
 
     if (rec.type === "user") {
+      // ツール失敗(is_error)を失敗マーカーにする(エラー本文は読まない)
+      const uc = rec.message?.content;
+      if (Array.isArray(uc)) {
+        for (const it of uc) {
+          if (
+            it &&
+            it.type === "tool_result" &&
+            it.is_error === true &&
+            typeof it.tool_use_id === "string"
+          ) {
+            const n = toolUseNames.get(it.tool_use_id);
+            events.push({
+              kind: "error",
+              name: n ? `${n} 失敗` : "ツール失敗",
+              ts,
+            });
+          }
+        }
+      }
       const texts = userTexts(rec);
       if (texts.length === 0) return;
       let isCommand = false;
@@ -337,13 +402,23 @@ async function extractLane(file: File): Promise<{
     }
 
     messages++;
+    messageTs.push(ts);
     if (repo === null && typeof rec.cwd === "string")
       repo = rec.cwd.split("/").filter(Boolean).pop() ?? null;
     if (agentId === null && typeof rec.agentId === "string")
       agentId = rec.agentId;
-    if (model === null && typeof rec.message?.model === "string" &&
-        !rec.message.model.startsWith("<"))
-      model = rec.message.model;
+    const rowModel =
+      typeof rec.message?.model === "string" &&
+      !rec.message.model.startsWith("<")
+        ? rec.message.model
+        : null;
+    if (rowModel) {
+      if (model === null) model = rowModel;
+      // /model等での切替位置をマーカーにする
+      if (lastModel !== null && rowModel !== lastModel)
+        events.push({ kind: "model", name: rowModel, ts });
+      lastModel = rowModel;
+    }
 
     // 累積消費チャート用の使用量(モデルとトークン数のみ)
     const usage = rec.message?.usage;
@@ -360,6 +435,7 @@ async function extractLane(file: File): Promise<{
         output: usage.output_tokens ?? 0,
         cacheRead: usage.cache_read_input_tokens ?? 0,
         cacheCreation: usage.cache_creation_input_tokens ?? 0,
+        origin: "main",
       });
     }
 
@@ -383,6 +459,9 @@ async function extractLane(file: File): Promise<{
     if (!Array.isArray(content)) return;
     for (const it of content) {
       if (!it || it.type !== "tool_use" || typeof it.name !== "string") continue;
+      toolTs.push(ts);
+      if (typeof it.id === "string")
+        toolUseNames.set(it.id, toolName(it.name));
       if (it.name === "Skill") {
         if (typeof it.input?.skill === "string")
           events.push({ kind: "skill-call", name: it.input.skill, ts });
@@ -420,7 +499,15 @@ async function extractLane(file: File): Promise<{
     hasAttribution,
     repo,
     firstPromptChars,
+    toolTs,
+    messageTs,
   };
+}
+
+function fmtKilo(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
 }
 
 // subagentsファイルのagentId "a<name>-<hash>" から表示名を取り出す
@@ -462,9 +549,18 @@ export async function parseSessionDetail(
 
   // サブエージェント: 各ファイルを読み、spawnイベントと名前で突き合わせる
   const spawnsLeft = [...main.agentSpawns];
+  const subToolTs: number[] = [];
+  const subMessageTs: number[] = [];
   for (const file of subFiles) {
     const lane = await extractLane(file);
-    usagePoints.push(...lane.usagePoints);
+    usagePoints.push(
+      ...lane.usagePoints.map((p) => ({ ...p, origin: "sub" as const })),
+    );
+    subToolTs.push(...lane.toolTs);
+    subMessageTs.push(...lane.messageTs);
+    // サブエージェント内のツール失敗もマーカーとして出す
+    for (const e of lane.events)
+      if (e.kind === "error") filteredItems.push({ type: "event", event: e });
     const name = agentNameFromId(lane.agentId, file.name);
     const lower = name.toLowerCase();
     const matchIdx = spawnsLeft.findIndex(
@@ -521,6 +617,33 @@ export async function parseSessionDetail(
 
   usagePoints.sort((a, b) => a.ts - b.ts);
 
+  // ターン集計: プロンプト→次のプロンプトまでを1ターンとし、
+  // その間のサブエージェント消費もそのターンに帰属させる
+  const promptTs = main.events
+    .filter((e) => e.kind === "prompt")
+    .map((e) => e.ts)
+    .sort((a, b) => a - b);
+  const allToolTs = [...main.toolTs, ...subToolTs];
+  const allMsgTs = [...main.messageTs, ...subMessageTs];
+  const turns: TurnStat[] = promptTs.map((t, i) => {
+    const next = promptTs[i + 1] ?? Infinity;
+    const inR = (x: number) => x >= t && x < next;
+    const points = usagePoints.filter((p) => inR(p.ts));
+    const acts = [
+      ...points.map((p) => p.ts),
+      ...allToolTs.filter(inR),
+      ...allMsgTs.filter(inR),
+    ];
+    return {
+      index: i + 1,
+      start: t,
+      activityEnd: acts.length > 0 ? Math.max(...acts) : t,
+      messages: allMsgTs.filter(inR).length,
+      toolCalls: allToolTs.filter(inR).length,
+      points,
+    };
+  });
+
   const start = meta.start ?? main.start ?? 0;
   const end = meta.end ?? main.end ?? start;
   return {
@@ -531,6 +654,64 @@ export async function parseSessionDetail(
     topTools: sortedTools(main.topTools),
     hasAttribution: main.hasAttribution,
     usagePoints,
+    turns,
+  };
+}
+
+/** サブエージェント1起動分のミニタイムライン(そのエージェントのレーンのみ) */
+export async function parseSubagentDetail(
+  run: SubagentRun,
+): Promise<SessionDetail> {
+  const lane = await extractLane(run.file);
+  const items: TimelineItem[] = [];
+  for (const e of lane.events) items.push({ type: "event", event: e });
+  for (const s of lane.spans)
+    items.push({
+      type: "span",
+      span: {
+        kind: "skill",
+        name: s.name,
+        start: s.start,
+        end: s.end,
+        messages: s.messages,
+        tools: sortedTools(s.tools),
+        children: [],
+      },
+    });
+  // ネストしたTask起動は起動時点のマーカー的スパンとして出す
+  for (const sp of lane.agentSpawns)
+    items.push({
+      type: "span",
+      span: {
+        kind: "agent",
+        name: sp.name,
+        detail: sp.type,
+        start: sp.ts,
+        end: sp.ts,
+        messages: 0,
+        tools: [],
+        children: [],
+      },
+    });
+  const filtered = lane.hasAttribution
+    ? items.filter((i) => i.type !== "event" || i.event.kind !== "skill-call")
+    : items;
+  filtered.sort((a, b) => {
+    const ta = a.type === "event" ? a.event.ts : a.span.start;
+    const tb = b.type === "event" ? b.event.ts : b.span.start;
+    return ta - tb;
+  });
+  const start = lane.start ?? run.start ?? 0;
+  const end = lane.end ?? start;
+  return {
+    sessionId: run.sessionId,
+    start,
+    end,
+    items: filtered,
+    topTools: sortedTools(lane.topTools),
+    hasAttribution: lane.hasAttribution,
+    usagePoints: lane.usagePoints,
+    turns: [],
   };
 }
 
@@ -558,6 +739,8 @@ export interface SubagentRun {
   /** 指示プロンプトの文字数(内容は保持しない) */
   promptChars: number | null;
   messages: number;
+  /** ミニタイムライン表示用のトランスクリプト */
+  file: File;
 }
 
 /** 全セッションのサブエージェント起動を新しい順で一覧にする */
@@ -598,6 +781,7 @@ export async function listSubagentRuns(
         tokens,
         promptChars: lane.firstPromptChars,
         messages: lane.messages,
+        file,
       });
     }
   }
