@@ -39,7 +39,18 @@ const CATEGORY_INFO: Record<FeatureCategory, string> = {
   slashCommands: "チャット欄で実行したコマンドの回数。列名クリックで並べ替え",
   plugins: "プラグイン経由のスキル/コマンド実行回数。列名クリックで並べ替え",
   repos:
-    "誰がどのリポジトリでClaude Codeを使っているか(数値=アシスタントメッセージ数)。リポジトリ名はディレクトリ名のみでフルパスは含まれません",
+    "どのリポジトリでどれだけClaude Codeを使っているかの分布。数値は「そのリポジトリを作業ディレクトリとして生成されたアシスタントメッセージ数(Claudeの応答回数)」で、スキル等の「利用回数」とは単位が違う点に注意。リポジトリはcwdの末尾ディレクトリ名で判定し(フルパスは共有されない)、本人が共有時に選んだリポジトリだけが表示されます",
+};
+
+// 見出し下に常時表示する「数値の意味」。ホバーしないと分からない状態を避ける
+const CATEGORY_UNIT: Record<FeatureCategory, string> = {
+  skills: "数値 = スキルの呼び出し回数",
+  subagents: "数値 = サブエージェントの起動回数",
+  mcpTools: "数値 = MCPツールの呼び出し回数",
+  slashCommands: "数値 = コマンドの実行回数",
+  plugins: "数値 = プラグイン経由のスキル/コマンド実行回数",
+  repos:
+    "数値 = そのリポジトリでのアシスタントメッセージ数(Claudeの応答回数)。本人が共有を選んだリポジトリのみ",
 };
 
 export function TeamHeatmap({
@@ -126,6 +137,7 @@ export function TeamHeatmap({
         {CATEGORY_LABEL[category]} × メンバー
         <InfoTip text={CATEGORY_INFO[category]} />
       </h2>
+      <p className="card-desc">{CATEGORY_UNIT[category]}</p>
       {totals.length === 0 ? (
         <div className="empty-note">「{query}」に該当する項目なし</div>
       ) : (
