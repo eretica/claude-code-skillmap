@@ -22,6 +22,8 @@ import { costInRange, formatUsd, loadRates, saveRates } from "../lib/pricing";
 import type { ModelRate } from "../lib/pricing";
 import { PeriodFilter } from "./PeriodFilter";
 import { getHashParam, setHashParams } from "../lib/urlState";
+import { currentRoomId } from "../lib/room";
+import { Modal } from "./Modal";
 import { Dropzone } from "./Dropzone";
 import { StatTile } from "./StatTile";
 import { InfoTip } from "./InfoTip";
@@ -48,8 +50,22 @@ function readSummaries(files: File[]): Promise<UsageSummary[]> {
   );
 }
 
+// 表示OFFにしたメンバーはルームごとにブラウザへ記憶する(削除ではなく表示だけの制御)
+const HIDDEN_KEY = `claude-graph:hiddenMembers:${currentRoomId() ?? "local"}`;
+
 export function TeamView() {
   const [members, setMembers] = useState<UsageSummary[]>([]);
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? "[]"));
+    } catch {
+      return new Set();
+    }
+  });
+  // 削除動線: ボタン → モーダルで選択 → 確認ダイアログ → 削除
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
   // ヒートマップ群の共通コントロール(全カテゴリに効く)
   const [editMode, setEditMode] = useState(false);
   const [query, setQuery] = useState("");
@@ -86,6 +102,24 @@ export function TeamView() {
   }, [period, customFrom, customTo, compareTarget, repoFilter]);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden]));
+  }, [hidden]);
+
+  const toggleHidden = (name: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
+  // 表示ONのメンバーだけを全集計の対象にする
+  const visible = useMemo(
+    () => members.filter((m) => !hidden.has(m.name)),
+    [members, hidden],
+  );
   // 概算コストの単価(このブラウザにのみ保存。共有されない)
   const [rates, setRates] = useState<Record<string, ModelRate>>(loadRates);
   const updateRates = (r: Record<string, ModelRate>) => {
@@ -131,18 +165,38 @@ export function TeamView() {
     [loadFromServer],
   );
 
-  const removeMember = async (name: string) => {
-    if (IS_CLOUD) {
-      if (!window.confirm(`${name} のデータをサーバーから削除しますか?`))
-        return;
-      try {
-        await deleteSummary(name);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        return;
+  const toggleDeleteSelected = (name: string) =>
+    setDeleteSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
+  // 誤操作防止のため、削除はモーダルで選択→確認ダイアログの2段階を踏む
+  const deleteMembers = async () => {
+    const names = [...deleteSelected];
+    if (names.length === 0) return;
+    const msg = IS_CLOUD
+      ? `${names.join("、")} のデータをサーバーから完全に削除します。元に戻せません(本人が再共有すると再登録されます)。よろしいですか?`
+      : `${names.join("、")} をこの一覧から削除します。よろしいですか?`;
+    if (!window.confirm(msg)) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      if (IS_CLOUD) {
+        for (const name of names) await deleteSummary(name);
+        await loadFromServer();
+      } else {
+        setMembers((prev) => prev.filter((m) => !names.includes(m.name)));
       }
+      setDeleteModalOpen(false);
+      setDeleteSelected(new Set());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
     }
-    setMembers((prev) => prev.filter((x) => x.name !== name));
   };
 
   const onFiles = async (files: File[]) => {
@@ -168,13 +222,13 @@ export function TeamView() {
         ? { from: customFrom || null, to: customTo || null }
         : null
       : periodRange(period);
-  const repos = useMemo(() => repoNames(members), [members]);
+  const repos = useMemo(() => repoNames(visible), [visible]);
   const repo = repoFilter && repos.includes(repoFilter) ? repoFilter : null;
   const legacyNames = range
-    ? members.filter((m) => !m.dailyFeatures).map((m) => m.name)
+    ? visible.filter((m) => !m.dailyFeatures).map((m) => m.name)
     : [];
   const noRepoNames = repo
-    ? members.filter((m) => !m.dailyRepos).map((m) => m.name)
+    ? visible.filter((m) => !m.dailyRepos).map((m) => m.name)
     : [];
 
   // 期間を適用した全カテゴリの集計はレンダーごとに再計算しない
@@ -187,26 +241,26 @@ export function TeamView() {
       map.set(
         cat,
         new Map(
-          members.map(
+          visible.map(
             (m) => [m.name, featureCounts(m, cat, range, repo)] as const,
           ),
         ),
       );
     }
     return map;
-  }, [members, range, repo]);
+  }, [visible, range, repo]);
   const skillCountsOf = countsByCat.get("skills")!;
   const activityOf = useMemo(
     () =>
       new Map(
-        members.map((m) => [m.name, activityIn(m, range, repo)] as const),
+        visible.map((m) => [m.name, activityIn(m, range, repo)] as const),
       ),
-    [members, range, repo],
+    [visible, range, repo],
   );
   // 日別比較チャート用: リポジトリフィルタ時はdailyReposから日別系列を組み立てる
   const membersForDaily = useMemo(() => {
-    if (!repo) return members;
-    return members.map((m) => ({
+    if (!repo) return visible;
+    return visible.map((m) => ({
       name: m.name,
       dailyActivity: Object.entries(m.dailyRepos ?? {})
         .filter(([, repoMap]) => repoMap[repo])
@@ -218,10 +272,10 @@ export function TeamView() {
         }))
         .sort((a, b) => (a.date < b.date ? -1 : 1)),
     }));
-  }, [members, repo]);
+  }, [visible, repo]);
 
   const target =
-    members.find((m) => m.name === compareTarget) ?? members[0] ?? null;
+    visible.find((m) => m.name === compareTarget) ?? visible[0] ?? null;
 
   return (
     <div>
@@ -285,26 +339,33 @@ export function TeamView() {
             )}
             <div className="member-list">
               {members.map((m) => (
-                <span
-                  className="member-chip"
+                <button
+                  type="button"
+                  className={`member-chip${hidden.has(m.name) ? " off" : ""}`}
                   key={m.name}
-                  title={
+                  onClick={() => toggleHidden(m.name)}
+                  aria-pressed={!hidden.has(m.name)}
+                  title={[
+                    hidden.has(m.name)
+                      ? "表示OFF(クリックで表示に戻す)"
+                      : "クリックで表示OFF(削除ではありません)",
                     updatedAt.get(m.name)
                       ? `最終共有: ${new Date(
                           updatedAt.get(m.name)!,
                         ).toLocaleString()}`
-                      : undefined
-                  }
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" / ")}
                 >
                   {m.name}
-                  <button
-                    aria-label={`${m.name} を除外`}
-                    onClick={() => void removeMember(m.name)}
-                  >
-                    ×
-                  </button>
-                </span>
+                </button>
               ))}
+              {hidden.size > 0 && (
+                <button className="ghost" onClick={() => setHidden(new Set())}>
+                  {hidden.size} 人を非表示中 — すべて表示
+                </button>
+              )}
             </div>
           </div>
 
@@ -323,18 +384,18 @@ export function TeamView() {
           )}
 
           <div className="tile-row">
-            <StatTile label="メンバー" value={members.length} />
+            <StatTile label="メンバー" value={visible.length} />
             <StatTile
               label="合計セッション"
               info="メンバー全員のセッション数合計。蓄積データは日別合計のため、日をまたぐセッションが重複計上されることがあります"
-              value={members.reduce(
+              value={visible.reduce(
                 (s, m) => s + activityOf.get(m.name)!.sessions,
                 0,
               )}
             />
             <StatTile
               label="チームのスキル利用回数"
-              value={members.reduce(
+              value={visible.reduce(
                 (s, m) => s + sumOf(skillCountsOf.get(m.name)!),
                 0,
               )}
@@ -343,7 +404,7 @@ export function TeamView() {
               label="登場したスキル種類"
               value={
                 new Set(
-                  members.flatMap((m) =>
+                  visible.flatMap((m) =>
                     Object.keys(skillCountsOf.get(m.name)!),
                   ),
                 ).size
@@ -353,7 +414,7 @@ export function TeamView() {
 
           {target && (
             <CompareCard
-              members={members}
+              members={visible}
               target={target}
               onTargetChange={setCompareTarget}
               range={range}
@@ -361,7 +422,7 @@ export function TeamView() {
             />
           )}
 
-          {target && <RecommendCard members={members} target={target} />}
+          {target && <RecommendCard members={visible} target={target} />}
 
           <div className="controls-row" style={{ marginTop: 8 }}>
             <input
@@ -379,6 +440,15 @@ export function TeamView() {
                 {editMode ? "削除モードを終了" : "項目を削除する…"}
               </button>
             )}
+            <button
+              className="ghost"
+              onClick={() => {
+                setDeleteSelected(new Set());
+                setDeleteModalOpen(true);
+              }}
+            >
+              メンバーを削除…
+            </button>
             <span className="empty-note">
               空欄は未利用 = その人に布教するチャンス。
               {editMode && " 削除モード中: 数値セルのクリックでサーバーから削除します。"}
@@ -386,7 +456,7 @@ export function TeamView() {
           </div>
 
           <TeamHeatmap
-            members={members}
+            members={visible}
             category="skills"
             counts={countsByCat.get("skills")!}
             highlightName={target?.name}
@@ -404,7 +474,7 @@ export function TeamView() {
             ).map((cat) => (
               <TeamHeatmap
                 key={cat}
-                members={members}
+                members={visible}
                 category={cat}
                 counts={countsByCat.get(cat)!}
                 highlightName={target?.name}
@@ -417,7 +487,7 @@ export function TeamView() {
             ))}
           </div>
 
-          <AskWhoCard members={members} />
+          <AskWhoCard members={visible} />
 
           <div className="card">
             <h2>日別アクティビティ比較<InfoTip text="メンバーごとの1日あたりアシスタントメッセージ数。線の色はメンバーに固定です" /></h2>
@@ -435,7 +505,7 @@ export function TeamView() {
               </p>
               <BarList
                 data={Object.fromEntries(
-                  members.map((m) => [
+                  visible.map((m) => [
                     m.name,
                     sumOf(skillCountsOf.get(m.name)!),
                   ]),
@@ -450,7 +520,7 @@ export function TeamView() {
               </p>
               <BarList
                 data={Object.fromEntries(
-                  members.map((m) => [m.name, skillRate(m, repo)]),
+                  visible.map((m) => [m.name, skillRate(m, repo)]),
                 )}
                 unit="%"
               />
@@ -463,7 +533,7 @@ export function TeamView() {
               </p>
               <BarList
                 data={Object.fromEntries(
-                  members.map((m) => [m.name, diversity(m, range, repo)]),
+                  visible.map((m) => [m.name, diversity(m, range, repo)]),
                 )}
                 color="var(--series-3)"
               />
@@ -472,7 +542,7 @@ export function TeamView() {
               <h2>メンバー別トークン{range ? " (全期間)" : ""}<InfoTip text="トークン=モデルが読み書きした文章量の単位。おおまかな利用量・コストの目安になります" /></h2>
               <p className="card-desc">トークン量の比較(モデル横断の合計)</p>
               <TokenChart
-                rows={members.map((m) => ({
+                rows={visible.map((m) => ({
                   label: m.name,
                   tokens: totalTokens(m),
                 }))}
@@ -485,7 +555,7 @@ export function TeamView() {
               </p>
               <BarList
                 data={Object.fromEntries(
-                  members
+                  visible
                     .map((m) => [m.name, delegationRate(m, range)] as const)
                     .filter((e): e is [string, number] => e[1] !== null),
                 )}
@@ -500,7 +570,7 @@ export function TeamView() {
               </p>
               <BarList
                 data={Object.fromEntries(
-                  members.map((m) => [
+                  visible.map((m) => [
                     m.name,
                     costInRange(m, range, rates).usd,
                   ]),
@@ -512,7 +582,7 @@ export function TeamView() {
                 rates={rates}
                 usedModels={[
                   ...new Set(
-                    members.flatMap((m) => Object.keys(m.tokensByModel)),
+                    visible.flatMap((m) => Object.keys(m.tokensByModel)),
                   ),
                 ]}
                 onChange={updateRates}
@@ -524,13 +594,59 @@ export function TeamView() {
             <h2>モデル × メンバー{range ? " (全期間)" : ""}<InfoTip text="誰がどのモデルをどれだけ使っているかの比較。値は入出力+キャッシュを含む合計トークンです" /></h2>
             <p className="card-desc">メンバーごとの利用モデル内訳(トークン)</p>
             <TeamModelChart
-              rows={members.map((m) => ({
+              rows={visible.map((m) => ({
                 name: m.name,
                 tokensByModel: m.tokensByModel,
               }))}
             />
           </div>
         </>
+      )}
+
+      {deleteModalOpen && (
+        <Modal
+          title="メンバーのデータを削除"
+          onClose={() => setDeleteModalOpen(false)}
+          footer={
+            <>
+              <button className="ghost" onClick={() => setDeleteModalOpen(false)}>
+                キャンセル
+              </button>
+              <button
+                className="primary"
+                disabled={deleteSelected.size === 0 || deleting}
+                onClick={() => void deleteMembers()}
+              >
+                {deleting
+                  ? "削除中…"
+                  : deleteSelected.size === 0
+                    ? "削除するメンバーを選んでください"
+                    : `選択した ${deleteSelected.size} 人を削除する`}
+              </button>
+            </>
+          }
+        >
+          <p className="card-desc">
+            {IS_CLOUD
+              ? "サーバーの保存データが完全に削除され、元に戻せません(本人が再共有すると再登録されます)。"
+              : "この画面の一覧から取り除きます。"}
+            一時的に見えなくしたいだけなら、削除ではなくメンバーチップのクリックで表示OFFにできます。
+          </p>
+          <div
+            style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", marginTop: 10 }}
+          >
+            {members.map((m) => (
+              <label className="exclude-item" key={m.name}>
+                <input
+                  type="checkbox"
+                  checked={deleteSelected.has(m.name)}
+                  onChange={() => toggleDeleteSelected(m.name)}
+                />
+                {m.name}
+              </label>
+            ))}
+          </div>
+        </Modal>
       )}
     </div>
   );

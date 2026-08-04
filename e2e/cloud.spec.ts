@@ -75,6 +75,14 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
     /e2e-user/,
   ]);
 
+  // 1.5 メンバーチップのクリックで表示OFF(削除ではない) → 全集計から外れる
+  await page.locator(".member-chip", { hasText: "demo-a" }).click();
+  const memberTile = page.locator(".stat-tile").filter({ hasText: /^メンバー/ });
+  await expect(memberTile).toContainText("2");
+  await expect(page.locator(".member-chip.off")).toHaveCount(1);
+  await page.getByRole("button", { name: /すべて表示/ }).click();
+  await expect(memberTile).toContainText("3");
+
   // 2. 個人解析: fixtureをパースし、1項目除外して共有
   await page.getByRole("button", { name: "個人解析" }).click();
   await page
@@ -308,4 +316,22 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
   await expect
     .poll(async () => page.evaluate(() => window.location.hash))
     .toContain("target=e2e-user");
+
+  // 10. メンバー削除は ボタン → モーダル → 選択 → 確認ダイアログ → 削除 の動線
+  await page.getByRole("button", { name: "メンバーを削除…" }).click();
+  const delModal = page.locator(".modal");
+  await expect(delModal).toBeVisible();
+  await expect(
+    delModal.getByRole("button", { name: "削除するメンバーを選んでください" }),
+  ).toBeDisabled();
+  await delModal
+    .locator(".exclude-item", { hasText: "demo-a" })
+    .locator("input")
+    .check();
+  // 確認ダイアログはpage.on("dialog")でaccept済み
+  await delModal.getByRole("button", { name: /1 人を削除する/ }).click();
+  await expect(page.locator(".member-chip")).toHaveCount(2);
+  await expect(page.locator(".member-chip", { hasText: "demo-a" })).toHaveCount(
+    0,
+  );
 });
