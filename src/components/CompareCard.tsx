@@ -76,7 +76,8 @@ export function CompareCard({
   repo = null,
 }: {
   members: UsageSummary[];
-  target: UsageSummary;
+  /** 未選択(null)の場合はプレースホルダを表示する。既定で誰かを晒さないため */
+  target: UsageSummary | null;
   onTargetChange: (name: string) => void;
   range: DateRange | null;
   /** リポジトリフィルタ(指定時は全指標がそのリポジトリ内の値になる) */
@@ -85,7 +86,7 @@ export function CompareCard({
   // 比較の基準: チーム平均、またはお手本にしたい特定メンバー(1対1比較)
   const [baseline, setBaseline] = useState<string>("avg");
   const baseMember =
-    baseline === "avg"
+    baseline === "avg" || !target
       ? null
       : (members.find((m) => m.name === baseline && m.name !== target.name) ??
         null);
@@ -126,73 +127,86 @@ export function CompareCard({
         <h2 style={{ margin: 0 }}>個人 vs チーム<InfoTip text="青=選んだメンバー、グレー=比較の基準(チーム平均または特定メンバー)。縦線はチーム中央値=メンバーを値の順に並べたとき真ん中に来る値で、平均と違い極端に多い人に引っ張られません" /></h2>
         <select
           className="member-select"
-          value={target.name}
+          value={target?.name ?? ""}
           onChange={(e) => onTargetChange(e.target.value)}
         >
+          <option value="">メンバーを選択…</option>
           {members.map((m) => (
             <option key={m.name} value={m.name}>
               {m.name}
             </option>
           ))}
         </select>
-        <span className="empty-note">と比べる:</span>
-        <select
-          className="member-select"
-          value={baseMember ? baseline : "avg"}
-          onChange={(e) => setBaseline(e.target.value)}
-        >
-          <option value="avg">チーム平均</option>
-          {members
-            .filter((m) => m.name !== target.name)
-            .map((m) => (
-              <option key={m.name} value={m.name}>
-                {m.name}
-              </option>
-            ))}
-        </select>
+        {target && (
+          <>
+            <span className="empty-note">と比べる:</span>
+            <select
+              className="member-select"
+              value={baseMember ? baseline : "avg"}
+              onChange={(e) => setBaseline(e.target.value)}
+            >
+              <option value="avg">チーム平均</option>
+              {members
+                .filter((m) => m.name !== target.name)
+                .map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name}
+                  </option>
+                ))}
+            </select>
+          </>
+        )}
       </div>
-      <p className="card-desc">
-        選んだメンバーと{baseLabel}の比較。縦線はチーム中央値。
-        {repo ? `リポジトリ「${repo}」内の値です。` : ""}
-        {range ? "件数系は期間内の値です。" : ""}
-        スキル利用セッション率のみ全期間の値です。
-      </p>
-      <div className="compare-grid">
-        {metrics.map(({ label, value, unit }) => {
-          const values = members.map(value);
-          return (
-            <CompareRow
-              key={label}
-              label={label}
-              mine={value(target)}
-              base={
-                baseMember
-                  ? value(baseMember)
-                  : values.length
-                    ? values.reduce((a, b) => a + b, 0) / values.length
-                    : 0
-              }
-              baseLabel={baseMember ? baseLabel : "平均"}
-              values={values}
-              unit={unit}
-            />
-          );
-        })}
-      </div>
-      <div className="legend">
-        <span>
-          <span className="swatch" style={{ background: "var(--series-1)" }} />
-          {target.name}
-        </span>
-        <span>
-          <span className="swatch" style={{ background: "var(--axis)" }} />
-          {baseLabel}
-        </span>
-        <span>
-          <span className="swatch cmp-median-swatch" />
-          中央値
-        </span>
-      </div>
+      {!target ? (
+        <p className="empty-note" style={{ margin: "12px 0 4px" }}>
+          メンバーを選ぶと、チーム平均・中央値・順位との比較と「おすすめ」が表示されます(自分を選ぶ想定です)
+        </p>
+      ) : (
+        <>
+          <p className="card-desc">
+            選んだメンバーと{baseLabel}の比較。縦線はチーム中央値。
+            {repo ? `リポジトリ「${repo}」内の値です。` : ""}
+            {range ? "件数系は期間内の値です。" : ""}
+            スキル利用セッション率のみ全期間の値です。
+          </p>
+          <div className="compare-grid">
+            {metrics.map(({ label, value, unit }) => {
+              const values = members.map(value);
+              return (
+                <CompareRow
+                  key={label}
+                  label={label}
+                  mine={value(target)}
+                  base={
+                    baseMember
+                      ? value(baseMember)
+                      : values.length
+                        ? values.reduce((a, b) => a + b, 0) / values.length
+                        : 0
+                  }
+                  baseLabel={baseMember ? baseLabel : "平均"}
+                  values={values}
+                  unit={unit}
+                />
+              );
+            })}
+          </div>
+          <div className="legend">
+            <span>
+              <span className="swatch" style={{ background: "var(--series-1)" }} />
+              {target.name}
+            </span>
+            <span>
+              <span className="swatch" style={{ background: "var(--axis)" }} />
+              {baseLabel}
+            </span>
+            <span>
+              <span className="swatch cmp-median-swatch" />
+              中央値
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -216,12 +216,15 @@ export function TeamView() {
     }
   };
 
-  const range: DateRange | null =
-    period === "custom"
-      ? customFrom || customTo
-        ? { from: customFrom || null, to: customTo || null }
-        : null
-      : periodRange(period);
+  const range: DateRange | null = useMemo(
+    () =>
+      period === "custom"
+        ? customFrom || customTo
+          ? { from: customFrom || null, to: customTo || null }
+          : null
+        : periodRange(period),
+    [period, customFrom, customTo],
+  );
   const repos = useMemo(() => repoNames(visible), [visible]);
   const repo = repoFilter && repos.includes(repoFilter) ? repoFilter : null;
   const legacyNames = range
@@ -274,8 +277,8 @@ export function TeamView() {
     }));
   }, [visible, repo]);
 
-  const target =
-    visible.find((m) => m.name === compareTarget) ?? visible[0] ?? null;
+  // 既定では誰も選ばない(先頭のメンバーを勝手に晒さない)
+  const target = visible.find((m) => m.name === compareTarget) ?? null;
 
   return (
     <div>
@@ -338,29 +341,39 @@ export function TeamView() {
               </select>
             )}
             <div className="member-list">
-              {members.map((m) => (
-                <button
-                  type="button"
-                  className={`member-chip${hidden.has(m.name) ? " off" : ""}`}
-                  key={m.name}
-                  onClick={() => toggleHidden(m.name)}
-                  aria-pressed={!hidden.has(m.name)}
-                  title={[
-                    hidden.has(m.name)
-                      ? "表示OFF(クリックで表示に戻す)"
-                      : "クリックで表示OFF(削除ではありません)",
-                    updatedAt.get(m.name)
-                      ? `最終共有: ${new Date(
-                          updatedAt.get(m.name)!,
-                        ).toLocaleString()}`
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" / ")}
-                >
-                  {m.name}
-                </button>
-              ))}
+              {members.map((m) => {
+                const shared = updatedAt.get(m.name);
+                // ローカルのログは既定30日で消えるため、共有が30日以上空くと履歴が途切れる
+                const stale =
+                  shared !== undefined &&
+                  Date.now() - new Date(shared).getTime() >
+                    30 * 24 * 60 * 60 * 1000;
+                return (
+                  <button
+                    type="button"
+                    className={`member-chip${hidden.has(m.name) ? " off" : ""}`}
+                    key={m.name}
+                    onClick={() => toggleHidden(m.name)}
+                    aria-pressed={!hidden.has(m.name)}
+                    title={[
+                      hidden.has(m.name)
+                        ? "表示OFF(クリックで表示に戻す)"
+                        : "クリックで表示OFF(削除ではありません)",
+                      shared
+                        ? `最終共有: ${new Date(shared).toLocaleString()}`
+                        : null,
+                      stale
+                        ? "最終共有から30日以上経過。ローカルログの自動削除で履歴が途切れる可能性があるため、再共有を促しましょう"
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" / ")}
+                  >
+                    {stale && <span aria-hidden="true">⚠️</span>}
+                    {m.name}
+                  </button>
+                );
+              })}
               {hidden.size > 0 && (
                 <button className="ghost" onClick={() => setHidden(new Set())}>
                   {hidden.size} 人を非表示中 — すべて表示
@@ -412,15 +425,13 @@ export function TeamView() {
             />
           </div>
 
-          {target && (
-            <CompareCard
-              members={visible}
-              target={target}
-              onTargetChange={setCompareTarget}
-              range={range}
-              repo={repo}
-            />
-          )}
+          <CompareCard
+            members={visible}
+            target={target}
+            onTargetChange={setCompareTarget}
+            range={range}
+            repo={repo}
+          />
 
           {target && <RecommendCard members={visible} target={target} />}
 

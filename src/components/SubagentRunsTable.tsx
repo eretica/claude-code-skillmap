@@ -36,10 +36,10 @@ export function SubagentRunsTable({
   const withCost = useMemo(
     () =>
       runs.map((run) => {
-        const r = run.model ? rateFor(run.model, rates) : null;
+        const rate = run.model ? rateFor(run.model, rates) : null;
         return {
           run,
-          usd: r ? costOfTokens(run.tokens, r) : null,
+          usd: rate ? costOfTokens(run.tokens, rate) : null,
           duration:
             run.start !== null && run.end !== null && run.end > run.start
               ? run.end - run.start

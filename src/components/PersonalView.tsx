@@ -369,12 +369,15 @@ export function PersonalView() {
   };
 
   // 期間フィルタは「表示のみ」に適用する(共有・エクスポートは常に全期間)
-  const range: DateRange | null =
-    period === "custom"
-      ? customFrom || customTo
-        ? { from: customFrom || null, to: customTo || null }
-        : null
-      : periodRange(period);
+  const range: DateRange | null = useMemo(
+    () =>
+      period === "custom"
+        ? customFrom || customTo
+          ? { from: customFrom || null, to: customTo || null }
+          : null
+        : periodRange(period),
+    [period, customFrom, customTo],
+  );
   const view = useMemo(() => {
     if (!summary) return null;
     const skills = featureCounts(summary, "skills", range);

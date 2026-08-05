@@ -235,15 +235,8 @@ function CumulativeChart({
     const valueOf = (p: (typeof detail.usagePoints)[number]): number => {
       if (mode === "tokens")
         return p.input + p.output + p.cacheRead + p.cacheCreation;
-      const r = rateFor(p.model, rates);
-      if (!r) return 0;
-      return (
-        (p.input * r.input +
-          p.output * r.output +
-          p.cacheRead * r.input * 0.1 +
-          p.cacheCreation * r.input * 1.25) /
-        1_000_000
-      );
+      const rate = rateFor(p.model, rates);
+      return rate ? costOfTokens(p, rate) : 0;
     };
     const series: Record<"main" | "sub", [number, number][]> = {
       main: [],
