@@ -13,6 +13,11 @@ export interface SessionMeta {
   prompts: number;
   skills: string[];
   agentSpawns: number;
+  /** モデル別トークン(メイン会話のみ。サブエージェント分は表示側で合算する) */
+  tokensByModel: Record<
+    string,
+    { input: number; output: number; cacheRead: number; cacheCreation: number }
+  >;
   /** Task/Agent起動の名前とsubagent_type(サブエージェント一覧の種別照合用) */
   spawns: { name: string; type: string }[];
   file: File;
@@ -191,6 +196,7 @@ export async function buildSessionIndex(files: File[]): Promise<SessionIndex> {
       skills: [],
       agentSpawns: 0,
       spawns: [],
+      tokensByModel: {},
       file,
     };
     const skills = new Set<string>();
@@ -210,6 +216,25 @@ export async function buildSessionIndex(files: File[]): Promise<SessionIndex> {
         meta.assistantMessages++;
         if (meta.repo === null && typeof rec.cwd === "string")
           meta.repo = rec.cwd.split("/").filter(Boolean).pop() ?? null;
+        // コスト列用: モデル別トークンを積む
+        const usage = rec.message?.usage;
+        if (
+          usage &&
+          typeof usage === "object" &&
+          typeof rec.message?.model === "string" &&
+          !rec.message.model.startsWith("<")
+        ) {
+          const t = (meta.tokensByModel[rec.message.model] ??= {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheCreation: 0,
+          });
+          t.input += usage.input_tokens ?? 0;
+          t.output += usage.output_tokens ?? 0;
+          t.cacheRead += usage.cache_read_input_tokens ?? 0;
+          t.cacheCreation += usage.cache_creation_input_tokens ?? 0;
+        }
         const content = rec.message?.content;
         if (Array.isArray(content)) {
           for (const it of content) {

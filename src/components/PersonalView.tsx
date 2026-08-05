@@ -786,13 +786,14 @@ export function PersonalView() {
           </div>
 
           <div className="card">
-            <h2>セッション詳細<InfoTip text="セッションを選ぶと、プロンプト→スキル読込→エージェント起動→ツール実行の流れをOpenTelemetryのトレースビュー風に表示します。この画面はこのブラウザでの閲覧専用で、チーム共有・エクスポートには一切含まれません" /></h2>
+            <h2>セッション詳細<InfoTip text="セッションを選ぶと、プロンプト→スキル読込→エージェント起動→ツール実行の流れをOpenTelemetryのトレースビュー風に表示します。トークン・コストはそのセッションのサブエージェント分も合算したAPI従量課金換算の概算です。この画面はこのブラウザでの閲覧専用で、チーム共有・エクスポートには一切含まれません" /></h2>
             <p className="card-desc">
               クリックでそのセッションのタイムラインを表示(ローカル閲覧のみ・共有されません)
             </p>
             {sessionIndex ? (
               <SessionList
                 sessions={sessionIndex.sessions}
+                subagentRuns={subagentRuns}
                 onOpen={(m) => void openSession(m)}
               />
             ) : (

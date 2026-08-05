@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -208,21 +209,42 @@ const TOKEN_KEYS = [
 ] as const;
 
 // トークン積み上げ横棒(モデル別/メンバー別で共用)。系列は固定順のカテゴリカル色。
+// キャッシュ読取が支配的で入出力が潰れて見えないことが多いため、
+// 「入出力のみ」への切替を用意する(合計の正直さと読み取りやすさの両立)
 export function TokenChart({
   rows,
 }: {
   rows: { label: string; tokens: TokenUsage }[];
 }) {
+  const [ioOnly, setIoOnly] = useState(false);
+  const keys: { key: keyof TokenUsage; name: string; color: string }[] = ioOnly
+    ? [...TOKEN_KEYS.slice(0, 2)]
+    : [...TOKEN_KEYS];
   const data = rows
     .map(({ label, tokens: t }) => ({
       model: label,
       ...t,
-      total: t.input + t.output + t.cacheRead + t.cacheCreation,
+      total: keys.reduce((s, k) => s + t[k.key], 0),
     }))
     .sort((a, b) => b.total - a.total);
   if (data.length === 0) return <div className="empty-note">データなし</div>;
   return (
     <div>
+      <div className="tl-toggle" style={{ marginBottom: 4 }}>
+        <button
+          className={ioOnly ? "" : "active"}
+          onClick={() => setIoOnly(false)}
+        >
+          すべて
+        </button>
+        <button
+          className={ioOnly ? "active" : ""}
+          onClick={() => setIoOnly(true)}
+          title="キャッシュ読取・作成を除いた、実際に読み書きした分だけを表示"
+        >
+          入出力のみ
+        </button>
+      </div>
       <ResponsiveContainer width="100%" height={60 + data.length * 44}>
         <BarChart
           data={data}
@@ -257,17 +279,17 @@ export function TokenChart({
                 className="legend"
                 style={{ justifyContent: "center", marginTop: 4 }}
               >
-                {TOKEN_KEYS.map((s) => (
+                {keys.map((s) => (
                   <span key={s.key}>
                     <span className="swatch" style={{ background: s.color }} />
                     {s.name}
                   </span>
                 ))}
-                <InfoTip text="入力=モデルに渡した文章量、出力=モデルが書いた量。キャッシュはプロンプトキャッシュ(会話の文脈を再利用して高速・低コスト化する仕組み)のことで、「読取」は再利用できた分(安価)、「作成」は再利用のために保存した分です" />
+                <InfoTip text="入力=モデルに渡した文章量、出力=モデルが書いた量。キャッシュはプロンプトキャッシュ(会話の文脈を再利用して高速・低コスト化する仕組み)のことで、「読取」は再利用できた分(安価)、「作成」は再利用のために保存した分です。キャッシュ読取が桁違いに大きく入出力が見えない場合は「入出力のみ」に切り替えてください" />
               </div>
             )}
           />
-          {TOKEN_KEYS.map((s, i) => (
+          {keys.map((s, i) => (
             <Bar
               key={s.key}
               dataKey={s.key}
@@ -279,7 +301,7 @@ export function TokenChart({
               strokeWidth={1}
               maxBarSize={18}
               // 積み上げ末尾のみ角丸(データ終端の4px丸め)
-              radius={i === TOKEN_KEYS.length - 1 ? [0, 4, 4, 0] : undefined}
+              radius={i === keys.length - 1 ? [0, 4, 4, 0] : undefined}
             />
           ))}
         </BarChart>

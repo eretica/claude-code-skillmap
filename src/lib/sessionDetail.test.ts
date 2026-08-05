@@ -171,6 +171,15 @@ describe("sessionDetail", () => {
     expect(s.prompts).toBe(1);
     expect(s.skills).toEqual(["demo-skill"]);
     expect(s.agentSpawns).toBe(1);
+    // 一覧のトークン/コスト列用(メイン会話分のみ。サブは表示側で合算)
+    expect(s.tokensByModel).toEqual({
+      "claude-fable-5": {
+        input: 10,
+        output: 5,
+        cacheRead: 100,
+        cacheCreation: 50,
+      },
+    });
     expect(index.subagentFiles.get(SID)).toHaveLength(1);
   });
 

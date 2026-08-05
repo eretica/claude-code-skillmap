@@ -109,6 +109,13 @@ test("解析から共有・チーム集計・項目削除までの一連の流�
   await expect(
     sessionCard.locator("tbody tr", { hasText: "E2Eデモセッション" }),
   ).toBeVisible();
+  // トークン・コスト列(サブエージェント分も合算)とソート可能ヘッダ
+  await expect(
+    sessionCard.locator("th.sortable", { hasText: "コスト" }),
+  ).toBeVisible();
+  await expect(
+    sessionCard.locator("tbody tr td").nth(6), // コスト列
+  ).toContainText("$");
   await sessionCard.locator("tbody tr").first().click();
   const tl = page.locator(".modal");
   await expect(tl).toBeVisible();
