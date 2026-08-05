@@ -67,8 +67,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (
         typeof name !== "string" ||
         !name ||
+        name.length > 64 || // POST時のsanitize(64文字)と同じ上限
         typeof key !== "string" ||
         !key ||
+        key.length > 200 ||
         !isFeatureCategory(category)
       ) {
         res.status(400).json({ error: "name, category, key are required" });
@@ -96,7 +98,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === "DELETE") {
       const name = typeof req.query.name === "string" ? req.query.name : "";
-      if (!name) {
+      if (!name || name.length > 64) {
         res.status(400).json({ error: "name is required" });
         return;
       }
